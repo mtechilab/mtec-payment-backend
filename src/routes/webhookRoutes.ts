@@ -16,7 +16,11 @@ router.post("/webhook", express.raw({ type: "application/json" }), async (req, r
   // signature header" section), then comment it back out. Don't leave
   // this on permanently — request headers can include sensitive data in
   // other contexts, and there's no reason to log every request forever.
+<<<<<<< HEAD
   // console.log("Webhook headers received:", req.headers);
+=======
+  console.log("Webhook headers received:", req.headers);
+>>>>>>> 36a4ab08e8d5c547f7d37ff856ed5a13dff2a814
 
   const signatureHeaderName = process.env.MONIME_SIGNATURE_HEADER || "monime-signature";
   const signature = req.headers[signatureHeaderName.toLowerCase()] as string | undefined;
