@@ -11,6 +11,13 @@ const router = Router();
 router.post("/webhook", express.raw({ type: "application/json" }), async (req, res) => {
   const rawBody = req.body as Buffer;
 
+  // TEMPORARY DIAGNOSTIC — uncomment while confirming the real signature
+  // header name for the first time (see README's "Confirming the webhook
+  // signature header" section), then comment it back out. Don't leave
+  // this on permanently — request headers can include sensitive data in
+  // other contexts, and there's no reason to log every request forever.
+  // console.log("Webhook headers received:", req.headers);
+
   const signatureHeaderName = process.env.MONIME_SIGNATURE_HEADER || "monime-signature";
   const signature = req.headers[signatureHeaderName.toLowerCase()] as string | undefined;
   const secret = process.env.MONIME_WEBHOOK_SECRET || "";
