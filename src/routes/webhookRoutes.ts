@@ -1,7 +1,7 @@
 import { Router } from "express";
 import express from "express";
 import { verifyMonimeSignature } from "../services/monimeClient.js";
-import { finalizeVerifiedPayment } from "../services/paymentPlanService.js";
+import { finalizeVerifiedPayment, generateMtecReference } from "../services/paymentPlanService.js";
 import { getSupabase } from "../db/supabaseClient.js";
 
 const router = Router();
@@ -11,12 +11,12 @@ const router = Router();
 router.post("/webhook", express.raw({ type: "application/json" }), async (req, res) => {
   const rawBody = req.body as Buffer;
 
-  // TEMPORARY DIAGNOSTIC — uncomment while confirming the real signature
-  // header name for the first time (see README's "Confirming the webhook
-  // signature header" section), then comment it back out. Don't leave
-  // this on permanently — request headers can include sensitive data in
-  // other contexts, and there's no reason to log every request forever.
-  console.log("Webhook headers received:", req.headers);
+  // TEMPORARY DIAGNOSTIC — uncomment while confirming the real payload
+  // shape for payment_code.completed (paymentId / paymentCodeId / amount
+  // field paths below are not yet verified against a real completed
+  // delivery, only against expired-event deliveries). Comment back out
+  // once confirmed — request headers/bodies shouldn't be logged forever.
+  // console.log("Webhook headers received:", req.headers);
 
   const signatureHeaderName = process.env.MONIME_SIGNATURE_HEADER || "monime-signature";
   const signature = req.headers[signatureHeaderName.toLowerCase()] as string | undefined;
@@ -36,39 +36,147 @@ router.post("/webhook", express.raw({ type: "application/json" }), async (req, r
 
   const eventName = payload?.event?.name;
   const eventId = payload?.event?.id;
-  const submissionId = payload?.data?.reference; // we set this = submission.id when creating the payment code
 
-  console.log(`[webhook] received ${eventName} (event ${eventId}), submissionId=${submissionId}`);
+  // UNCONFIRMED field paths for the recurrent case — captured here so a
+  // real payment_code.completed delivery can be checked against these
+  // before relying on the recurrent flow in production.
+  const processedPaymentData = payload?.data?.processedPaymentData;
+  const paymentId = processedPaymentData?.paymentId ?? payload?.data?.paymentId;
+  const paymentCodeId = payload?.data?.paymentCodeId ?? payload?.data?.id;
+  const amountMinor = processedPaymentData?.amount?.value ?? payload?.data?.amount?.value;
+  const providerReference = processedPaymentData?.reference ?? payload?.data?.reference;
 
-  if (eventName === "payment_code.completed" && submissionId) {
-    const supabase = getSupabase();
+  // For a one-time code, `reference` is submission.id — set by /initiate
+  // before the Payment Code was created.
+  const oneTimeSubmissionId = payload?.data?.reference;
 
-    // Idempotency: Monime retries deliveries. A unique constraint on
-    // event_id means a retried delivery hits a conflict here and we bail
-    // out before touching anything else — same pattern as the web app's
-    // Monime integration.
-    const { error: idempotencyError } = await supabase
-      .from("processed_webhook_events")
-      .insert({ event_id: eventId });
+  console.log(`[webhook] received ${eventName} (event ${eventId})`, { paymentId, paymentCodeId, oneTimeSubmissionId });
 
-    if (idempotencyError) {
-      if (idempotencyError.code === "23505") {
-        console.log(`[webhook] event ${eventId} already processed — idempotent no-op`);
-        return res.status(200).json({ received: true });
-      }
-      console.error("[webhook] idempotency insert failed:", idempotencyError.message);
+  if (eventName !== "payment_code.completed") {
+    // Includes payment_code.expired and anything else we don't act on —
+    // 200 quickly so Monime doesn't keep retrying.
+    return res.status(200).json({ received: true });
+  }
+
+  const supabase = getSupabase();
+
+  // ---- Event-level idempotency (shared by both paths below) ----
+  const { data: existingEvent } = await supabase
+    .from("processed_webhook_events").select("event_id").eq("event_id", eventId).maybeSingle();
+  if (existingEvent) {
+    console.log(`[webhook] event ${eventId} already processed — idempotent no-op`);
+    return res.status(200).json({ received: true });
+  }
+
+  // =========================================================
+  // RECURRENT: look up by the plan's stored recurrent code id
+  // =========================================================
+  if (paymentCodeId) {
+    const { data: plan, error: planError } = await supabase
+      .from("payment_plans").select("*").eq("monime_recurrent_code_id", paymentCodeId).maybeSingle();
+
+    if (planError) {
+      console.error("[webhook] plan lookup failed:", planError.message);
       return res.status(500).json({ error: "internal_error" });
     }
 
-    try {
-      await finalizeVerifiedPayment(submissionId, "Monime (automatic)");
-      console.log(`[webhook] submission ${submissionId} finalized`);
-    } catch (err) {
-      console.error("[webhook] finalize failed:", (err as Error).message);
+    if (plan) {
+      if (!paymentId || amountMinor == null) {
+        console.error("[webhook] missing payment data for recurrent event", { eventId, paymentId, amountMinor });
+        // Nothing safe to act on with an incomplete payload — ack so
+        // Monime doesn't retry forever, but don't mark it processed.
+        return res.status(200).json({ received: true });
+      }
+
+      // Payment-level idempotency — protects against the same Monime
+      // payment being processed twice even across separate events.
+      const { data: existingPayment } = await supabase
+        .from("payment_submissions").select("id, status").eq("monime_payment_id", paymentId).maybeSingle();
+      if (existingPayment) {
+        await supabase.from("processed_webhook_events").insert({ event_id: eventId });
+        return res.status(200).json({ received: true });
+      }
+
+      const amountLeones = Number(amountMinor) / 100;
+      const mtecReference = await generateMtecReference(plan.student_row_id as string);
+
+      const { data: submission, error: submissionError } = await supabase
+        .from("payment_submissions")
+        .insert({
+          mtec_reference: mtecReference,
+          payment_plan_id: plan.id,
+          student_row_id: plan.student_row_id,
+          amount: amountLeones,
+          method: "monime",
+          status: "pending",
+          monime_payment_code_id: paymentCodeId,
+          monime_payment_id: paymentId,
+          monime_transaction_reference: providerReference || null,
+          provider_reference: providerReference || null,
+        })
+        .select()
+        .single();
+
+      if (submissionError) {
+        if (submissionError.code === "23505") {
+          // A concurrent webhook delivery already created it.
+          return res.status(200).json({ received: true });
+        }
+        console.error("[webhook] recurrent submission creation failed:", submissionError.message);
+        return res.status(500).json({ error: "internal_error" });
+      }
+
+      try {
+        await finalizeVerifiedPayment(submission.id, "Monime (automatic)");
+        console.log(`[webhook] recurrent payment ${paymentId} finalized (submission ${submission.id})`);
+      } catch (err) {
+        console.error("[webhook] recurrent finalize failed:", (err as Error).message);
+        // Don't mark the event processed — let Monime retry.
+        return res.status(500).json({ error: "payment_processing_failed" });
+      }
+
+      const { error: eventError } = await supabase.from("processed_webhook_events").insert({ event_id: eventId });
+      if (eventError && eventError.code !== "23505") {
+        console.error("[webhook] event recording failed:", eventError.message);
+        return res.status(500).json({ error: "internal_error" });
+      }
+
+      return res.status(200).json({ received: true });
     }
   }
 
-  // Always 200 quickly for events we don't act on, so Monime doesn't retry unnecessarily.
+  // =========================================================
+  // ONE-TIME: reference is the pre-created submission.id
+  // (unchanged from the original working one-time flow)
+  // =========================================================
+  if (!oneTimeSubmissionId) {
+    console.error("[webhook] payment_code.completed with no matching recurrent plan or submission reference");
+    return res.status(200).json({ received: true });
+  }
+
+  // Idempotency: Monime retries deliveries. A unique constraint on
+  // event_id means a retried delivery hits a conflict here and we bail
+  // out before touching anything else.
+  const { error: idempotencyError } = await supabase
+    .from("processed_webhook_events")
+    .insert({ event_id: eventId });
+
+  if (idempotencyError) {
+    if (idempotencyError.code === "23505") {
+      console.log(`[webhook] event ${eventId} already processed — idempotent no-op`);
+      return res.status(200).json({ received: true });
+    }
+    console.error("[webhook] idempotency insert failed:", idempotencyError.message);
+    return res.status(500).json({ error: "internal_error" });
+  }
+
+  try {
+    await finalizeVerifiedPayment(oneTimeSubmissionId, "Monime (automatic)");
+    console.log(`[webhook] submission ${oneTimeSubmissionId} finalized`);
+  } catch (err) {
+    console.error("[webhook] finalize failed:", (err as Error).message);
+  }
+
   res.status(200).json({ received: true });
 });
 
