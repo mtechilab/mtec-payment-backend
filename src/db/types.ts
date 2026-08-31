@@ -33,6 +33,10 @@ export interface Database {
           status: string;
           created_at: string;
           programmes?: { name: string; duration_years: number } | null;
+          monime_recurrent_code_id: string | null;
+          monime_recurrent_ussd_code: string | null;
+          monime_recurrent_expire_time: string | null;
+          monime_recurrent_amount: number | null;
         };
         Insert: Partial<Database["public"]["Tables"]["payment_plans"]["Row"]>;
         Update: Partial<Database["public"]["Tables"]["payment_plans"]["Row"]>;
@@ -68,6 +72,9 @@ export interface Database {
           verified_at: string | null;
           rejection_reason: string | null;
           created_at: string;
+          monime_payment_code_id: string | null;
+          monime_payment_id: string | null;
+          monime_transaction_reference: string | null;
         };
         Insert: Partial<Database["public"]["Tables"]["payment_submissions"]["Row"]>;
         Update: Partial<Database["public"]["Tables"]["payment_submissions"]["Row"]>;
@@ -123,4 +130,4 @@ export interface Database {
     Views: Record<string, never>;
     Functions: Record<string, never>;
   };
-}
+      }
