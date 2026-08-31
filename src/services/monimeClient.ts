@@ -58,15 +58,39 @@ export async function createPaymentCode(params: {
   return { paymentCodeId: json.result.id, ussdCode: json.result.ussdCode, expireTime: json.result.expireTime };
 }
 
-/** HMAC verification for incoming webhooks — see the README for how to
- *  confirm the real header name, which isn't published in Monime's docs
- *  as of writing. */
+/** HMAC verification for incoming webhooks.
+ *
+ *  Confirmed header format (see mtec-admissions-system's own webhook fix):
+ *    monime-signature: t=<timestamp>,v1=<base64 hmac>
+ *  Signed payload is "{timestamp}.{rawBody}", HMAC-SHA256, base64-encoded —
+ *  NOT a bare hex digest of the raw body alone. Splitting the header on the
+ *  first "=" per segment (not a naive split("=")) matters because the
+ *  base64 v1 value itself can contain "=" padding, which would otherwise
+ *  get truncated. */
 export function verifyMonimeSignature(rawBody: Buffer, signatureHeader: string | undefined, secret: string): boolean {
   if (!signatureHeader) return false;
-  const expected = crypto.createHmac("sha256", secret).update(rawBody).digest("hex");
+
+  const parts: Record<string, string> = {};
+  for (const segment of signatureHeader.split(",")) {
+    const idx = segment.indexOf("=");
+    if (idx === -1) continue;
+    parts[segment.slice(0, idx)] = segment.slice(idx + 1);
+  }
+
+  const timestamp = parts["t"];
+  const receivedSig = parts["v1"];
+  if (!timestamp || !receivedSig) return false;
+
+  const expected = crypto
+    .createHmac("sha256", secret)
+    .update(`${timestamp}.${rawBody}`)
+    .digest("base64");
+
   try {
-    return crypto.timingSafeEqual(Buffer.from(signatureHeader), Buffer.from(expected));
+    return crypto.timingSafeEqual(Buffer.from(receivedSig), Buffer.from(expected));
   } catch {
+    // Buffers of different length throw rather than returning false —
+    // treat that as "not a match" rather than letting it bubble up.
     return false;
   }
 }
