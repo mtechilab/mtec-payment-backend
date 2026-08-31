@@ -196,10 +196,17 @@ async function nextReceiptNumber(): Promise<string> {
   return `MTEC/REC/${year}/${String((count || 0) + 1).padStart(5, "0")}`;
 }
 
+/** Generates the human-readable payment reference, e.g. "MTEC-2026-0001-P01".
+ *
+ *  FIXED: student_id is hyphen-delimited ("MTEC-CS-2026-0001"), not
+ *  slash-delimited. The original .split("/").pop() found no "/" and
+ *  silently returned the entire student_id unchanged, producing broken
+ *  double-prefixed references like "MTEC-2026-MTEC-CS-2026-0001-P01".
+ *  Splitting on "-" correctly extracts just the trailing sequence number. */
 async function generateMtecReference(studentRowId: string): Promise<string> {
   const supabase = getSupabase();
   const { data: student } = await supabase.from("students").select("student_id, academic_year").eq("id", studentRowId).single();
-  const studentNumber = (student?.student_id as string)?.split("/").pop() || "00000";
+  const studentNumber = (student?.student_id as string)?.split("-").pop() || "00000";
   const year = student?.academic_year || String(new Date().getFullYear());
   const { count } = await supabase
     .from("payment_submissions")
@@ -324,9 +331,6 @@ export async function attachProviderReference(studentRowId: string, mtecReferenc
   }
   return { success: true as const, submissionId: submission.id as string };
 }
-
-
-
 
 // ---------------------------------------------------------------------
 // GET /payments/transactions — matches image 1's Transactions screen.
