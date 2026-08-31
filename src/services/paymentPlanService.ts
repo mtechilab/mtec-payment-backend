@@ -1,4 +1,5 @@
 import { getSupabase } from "../db/supabaseClient.js";
+import { createRecurrentPaymentCode } from "./monimeClient.js";
 
 // ---------------------------------------------------------------------
 // Every response shape in this file is written to match the Android
@@ -197,13 +198,15 @@ async function nextReceiptNumber(): Promise<string> {
 }
 
 /** Generates the human-readable payment reference, e.g. "MTEC-2026-0001-P01".
- *
  *  FIXED: student_id is hyphen-delimited ("MTEC-CS-2026-0001"), not
- *  slash-delimited. The original .split("/").pop() found no "/" and
- *  silently returned the entire student_id unchanged, producing broken
- *  double-prefixed references like "MTEC-2026-MTEC-CS-2026-0001-P01".
- *  Splitting on "-" correctly extracts just the trailing sequence number. */
-async function generateMtecReference(studentRowId: string): Promise<string> {
+ *  slash-delimited — the old .split("/").pop() found no "/" and silently
+ *  returned the entire student_id unchanged, producing broken double-
+ *  prefixed references like "MTEC-2026-MTEC-CS-2026-0001-P01" (confirmed
+ *  live during testing). Splitting on "-" correctly extracts just the
+ *  trailing sequence number. Exported so the webhook can generate a
+ *  reference for recurrent payments, which arrive without a pre-created
+ *  submission. */
+export async function generateMtecReference(studentRowId: string): Promise<string> {
   const supabase = getSupabase();
   const { data: student } = await supabase.from("students").select("student_id, academic_year").eq("id", studentRowId).single();
   const studentNumber = (student?.student_id as string)?.split("-").pop() || "00000";
@@ -330,6 +333,97 @@ export async function attachProviderReference(studentRowId: string, mtecReferenc
     throw new Error(`attachProviderReference failed: ${error.message}`);
   }
   return { success: true as const, submissionId: submission.id as string };
+}
+
+// ---------------------------------------------------------------------
+// Recurrent (Watu-style monthly) payment code
+// ---------------------------------------------------------------------
+
+/** Returns the amount for the student's next unpaid period — a
+ *  recurrent Monime code must have one fixed amount per redemption. */
+async function getNextRecurrentPaymentAmount(studentRowId: string): Promise<number> {
+  const plan = await getActivePlanForStudent(studentRowId);
+  const periods = await getPeriodsForPlan(plan.id as string);
+  const unpaid = periods.filter((p) => p.status !== "paid");
+  if (unpaid.length === 0) throw new Error("No unpaid payment period exists.");
+  const next = unpaid[0];
+  return Number(next.amount_due) - Number(next.amount_paid);
+}
+
+function monthsForPlan(plan: { plan_start_date: string; plan_end_date: string }): number {
+  const start = new Date(plan.plan_start_date);
+  const end = new Date(plan.plan_end_date);
+  return Math.max(1, Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24 * 30)));
+}
+
+/** Gets the plan's existing recurrent code or creates one. Deliberately
+ *  NOT tied to payment_submissions — one recurrent code can produce many
+ *  submissions over the life of the plan (one per monthly redemption):
+ *
+ *    paymentCode
+ *       ├── payment 1 -> submission 1
+ *       ├── payment 2 -> submission 2
+ *       └── payment 3 -> submission 3
+ */
+export async function ensureRecurrentPaymentCode(studentRowId: string) {
+  const supabase = getSupabase();
+  const plan = await getActivePlanForStudent(studentRowId);
+
+  const { data: student, error: studentError } = await supabase
+    .from("students").select("phone, full_name").eq("id", studentRowId).single();
+  if (studentError || !student) {
+    throw new Error(`Could not load student: ${studentError?.message || "student not found"}`);
+  }
+
+  const monthlyAmount = await getNextRecurrentPaymentAmount(studentRowId);
+
+  // Reuse an existing, still-valid recurrent code rather than creating a
+  // new one every time the student opens the "Pay Monthly" screen.
+  if (plan.monime_recurrent_code_id && plan.monime_recurrent_ussd_code && plan.monime_recurrent_expire_time) {
+    const expiry = new Date(plan.monime_recurrent_expire_time as string);
+    if (expiry.getTime() > Date.now()) {
+      return {
+        codeId: plan.monime_recurrent_code_id as string,
+        ussdCode: plan.monime_recurrent_ussd_code as string,
+        expireTime: plan.monime_recurrent_expire_time as string,
+        amount: monthlyAmount,
+        reused: true,
+      };
+    }
+  }
+
+  const months = monthsForPlan(plan as { plan_start_date: string; plan_end_date: string });
+  // UNCONFIRMED duration syntax — see the note in monimeClient.ts.
+  const duration = `${months}mo`;
+
+  const recurrentCode = await createRecurrentPaymentCode({
+    amountLeones: monthlyAmount,
+    customerName: student.full_name as string,
+    internalReference: `MTEC-PLAN-${plan.id}`,
+    duration,
+    recurrentPaymentTarget: { type: "count", value: months },
+    // No phone restriction, so a parent/guardian can redeem too (subject
+    // to Monime account configuration actually allowing it).
+  });
+
+  const { error: updateError } = await supabase
+    .from("payment_plans")
+    .update({
+      monime_recurrent_code_id: recurrentCode.paymentCodeId,
+      monime_recurrent_ussd_code: recurrentCode.ussdCode,
+      monime_recurrent_expire_time: recurrentCode.expireTime,
+      monime_recurrent_amount: monthlyAmount,
+    })
+    .eq("id", plan.id);
+  if (updateError) throw new Error(`Failed to save recurrent payment code: ${updateError.message}`);
+
+  return {
+    codeId: recurrentCode.paymentCodeId,
+    ussdCode: recurrentCode.ussdCode,
+    expireTime: recurrentCode.expireTime,
+    amount: monthlyAmount,
+    reused: false,
+  };
 }
 
 // ---------------------------------------------------------------------
