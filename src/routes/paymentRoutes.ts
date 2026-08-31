@@ -9,6 +9,7 @@ import {
   getStatusForReference,
   attachProviderReference,
   getTransactionsForStudent,
+  ensureRecurrentPaymentCode,
   SubmissionMethod,
 } from "../services/paymentPlanService.js";
 import { createPaymentCode } from "../services/monimeClient.js";
@@ -44,12 +45,26 @@ router.get("/options", async (req: AuthenticatedRequest, res: Response) => {
   }
 });
 
-// POST /payments/initiate — { amount, method } -> { transaction, monime? }
+type PaymentType = "recurrent" | "one_time";
+
+// POST /payments/initiate — { amount, method, paymentType? } -> { transaction, monime? }
+//
+// paymentType defaults to "one_time" so existing Android app builds that
+// don't send the field keep working unchanged. "recurrent" is the new
+// "Pay Monthly" flow using a single reusable USSD code.
 router.post("/initiate", async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { amount, method } = req.body as { amount: number; method: SubmissionMethod };
+    const { amount, method, paymentType = "one_time" } = req.body as {
+      amount: number;
+      method: SubmissionMethod;
+      paymentType?: PaymentType;
+    };
+
     if (!amount || !method) {
       return res.status(400).json({ error: "amount and method are required." });
+    }
+    if (paymentType !== "recurrent" && paymentType !== "one_time") {
+      return res.status(400).json({ error: "Invalid payment type." });
     }
 
     const check = await validateRequestedAmount(req.studentRowId!, amount);
@@ -57,10 +72,28 @@ router.post("/initiate", async (req: AuthenticatedRequest, res: Response) => {
       return res.status(400).json({ error: check.reason });
     }
 
+    const supabase = getSupabase();
+
+    // ---- RECURRENT (monthly, reusable code) ----
+    if (method === "monime" && paymentType === "recurrent") {
+      const recurrentCode = await ensureRecurrentPaymentCode(req.studentRowId!);
+      // No submission is created here — one is created by the webhook
+      // each time this reusable code is actually redeemed.
+      return res.json({
+        transaction: { amount: recurrentCode.amount, paymentType: "recurrent" },
+        monime: {
+          paymentCodeId: recurrentCode.codeId,
+          ussdCode: recurrentCode.ussdCode,
+          expiresAt: recurrentCode.expireTime,
+          amount: recurrentCode.amount,
+          paymentType: "recurrent",
+        },
+      });
+    }
+
     const submission = await createSubmission(req.studentRowId!, amount, method);
 
     if (method === "monime") {
-      const supabase = getSupabase();
       const { data: student } = await supabase
         .from("students").select("phone, full_name").eq("id", req.studentRowId!).single();
 
@@ -75,17 +108,24 @@ router.post("/initiate", async (req: AuthenticatedRequest, res: Response) => {
       // find it back by payment code id / our submission id.
       await supabase.from("payment_submissions").update({
         provider_reference: paymentCode.paymentCodeId,
+        monime_payment_code_id: paymentCode.paymentCodeId,
       }).eq("id", submission.id as string);
 
       return res.json({
-        transaction: { mtecReference: submission.mtec_reference, amount },
-        monime: { ussdCode: paymentCode.ussdCode, expiresAt: paymentCode.expireTime },
+        transaction: { mtecReference: submission.mtec_reference, amount, paymentType: "one_time" },
+        monime: {
+          paymentCodeId: paymentCode.paymentCodeId,
+          ussdCode: paymentCode.ussdCode,
+          expiresAt: paymentCode.expireTime,
+          amount,
+          paymentType: "one_time",
+        },
       });
     }
 
     // Manual methods — no Monime object in the response; MakePaymentActivity
     // only reads .getJSONObject("monime") when method === MONIME.
-    res.json({ transaction: { mtecReference: submission.mtec_reference, amount } });
+    res.json({ transaction: { mtecReference: submission.mtec_reference, amount, paymentType: "one_time" } });
   } catch (err) {
     console.error("[/payments/initiate] error:", (err as Error).message);
     res.status(500).json({ error: "Could not start payment. Please try again." });
