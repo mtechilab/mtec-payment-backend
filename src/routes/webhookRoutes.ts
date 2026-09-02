@@ -1,7 +1,7 @@
 import { Router } from "express";
 import express from "express";
 import { verifyMonimeSignature } from "../services/monimeClient.js";
-import { finalizeVerifiedPayment, generateMtecReference } from "../services/paymentPlanService.js";
+import { finalizeVerifiedPayment, generateMtecReference, expireSubmission } from "../services/paymentPlanService.js";
 import { getSupabase } from "../db/supabaseClient.js";
 
 const router = Router();
@@ -22,8 +22,9 @@ router.post("/webhook", express.raw({ type: "application/json" }), async (req, r
   const signature = req.headers[signatureHeaderName.toLowerCase()] as string | undefined;
   const secret = process.env.MONIME_WEBHOOK_SECRET || "";
 
-  if (!verifyMonimeSignature(rawBody, signature, secret)) {
-    console.warn("[webhook] signature verification failed — rejecting");
+  const signatureCheck = verifyMonimeSignature(rawBody, signature, secret);
+  if (!signatureCheck.valid) {
+    console.warn(`[webhook] signature verification failed (${signatureCheck.reason}) — rejecting`);
     return res.status(401).json({ error: "invalid_signature" });
   }
 
@@ -52,9 +53,23 @@ router.post("/webhook", express.raw({ type: "application/json" }), async (req, r
 
   console.log(`[webhook] received ${eventName} (event ${eventId})`, { paymentId, paymentCodeId, oneTimeSubmissionId });
 
+  if (eventName === "payment_code.expired") {
+    // A one-time code's `reference` is the submission id (set at /initiate,
+    // same as the completed path). expireSubmission() is naturally
+    // idempotent (only touches status "pending"), so no separate
+    // event-id dedup is needed here.
+    if (oneTimeSubmissionId) {
+      try {
+        await expireSubmission(oneTimeSubmissionId);
+      } catch (err) {
+        console.error("[webhook] expireSubmission failed:", (err as Error).message);
+      }
+    }
+    return res.status(200).json({ received: true });
+  }
+
   if (eventName !== "payment_code.completed") {
-    // Includes payment_code.expired and anything else we don't act on —
-    // 200 quickly so Monime doesn't keep retrying.
+    // Anything else we don't act on — 200 quickly so Monime doesn't keep retrying.
     return res.status(200).json({ received: true });
   }
 
@@ -181,3 +196,4 @@ router.post("/webhook", express.raw({ type: "application/json" }), async (req, r
 });
 
 export default router;
+
