@@ -156,8 +156,18 @@ export async function createRecurrentPaymentCode(params: {
  * Also rejects timestamps older than 5 minutes, standard replay-attack
  * protection used by every provider in this family (Stripe, Zoho, etc).
  */
-export function verifyMonimeSignature(rawBody: Buffer, signatureHeader: string | undefined, secret: string): boolean {
-  if (!signatureHeader) return false;
+export type SignatureCheckResult =
+  | { valid: true }
+  | { valid: false; reason: "missing_secret" | "missing_header" | "malformed_header" | "timestamp_too_old" | "mismatch" };
+
+export function verifyMonimeSignature(rawBody: Buffer, signatureHeader: string | undefined, secret: string): SignatureCheckResult {
+  // Checked first and separately from a bad/missing header: if the env var
+  // itself is empty, every delivery will fail HMAC comparison no matter
+  // what Monime sends — worth distinguishing in logs from "Monime sent a
+  // malformed signature", since the fix is completely different (an env
+  // var to set on Render vs. something to report to Monime).
+  if (!secret) return { valid: false, reason: "missing_secret" };
+  if (!signatureHeader) return { valid: false, reason: "missing_header" };
 
   const parts: Record<string, string> = {};
   for (const kv of signatureHeader.split(",")) {
@@ -168,19 +178,20 @@ export function verifyMonimeSignature(rawBody: Buffer, signatureHeader: string |
 
   const timestamp = parts["t"];
   const providedSignature = parts["v1"];
-  if (!timestamp || !providedSignature) return false;
+  if (!timestamp || !providedSignature) return { valid: false, reason: "malformed_header" };
 
   const timestampSeconds = Number(timestamp);
-  if (!Number.isFinite(timestampSeconds)) return false;
+  if (!Number.isFinite(timestampSeconds)) return { valid: false, reason: "malformed_header" };
   const ageSeconds = Math.abs(Date.now() / 1000 - timestampSeconds);
-  if (ageSeconds > 300) return false; // reject anything older than 5 minutes
+  if (ageSeconds > 300) return { valid: false, reason: "timestamp_too_old" }; // reject anything older than 5 minutes
 
   const signedPayload = Buffer.concat([Buffer.from(`${timestamp}.`, "utf8"), rawBody]);
   const expected = crypto.createHmac("sha256", secret).update(signedPayload).digest("base64");
 
   try {
-    return crypto.timingSafeEqual(Buffer.from(providedSignature), Buffer.from(expected));
+    const matches = crypto.timingSafeEqual(Buffer.from(providedSignature), Buffer.from(expected));
+    return matches ? { valid: true } : { valid: false, reason: "mismatch" };
   } catch {
-    return false; // length mismatch — definitely not a match, not a crash
+    return { valid: false, reason: "mismatch" }; // length mismatch — definitely not a match, not a crash
   }
 }
