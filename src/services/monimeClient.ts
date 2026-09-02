@@ -26,6 +26,12 @@ export interface RecurrentPaymentCodeResult {
  *  account's Checkout Session webhooks don't fire; only payment_code.*
  *  events do.
  *
+ *  `financialAccountId` targets a specific financial account in the
+ *  Monime space (this space has more than one — see MONIME_FINANCIAL_ACCOUNT_ID
+ *  below). Omitting it was letting Monime pick a default, which is the
+ *  likely cause of inconsistent USSD codes — some routable on Orange
+ *  Money, some rejected with "cannot be used on 'Orange Money'".
+ *
  *  `phone` is optional: only send authorizedPhoneNumber when explicitly
  *  supplied. An incorrect network/phone match here is what produced a
  *  real "reference code cannot be used on Orange Money" rejection during
@@ -40,6 +46,7 @@ export async function createPaymentCode(params: {
 }): Promise<PaymentCodeResult> {
   const accessToken = requireEnv("MONIME_ACCESS_TOKEN");
   const spaceId = requireEnv("MONIME_SPACE_ID");
+  const financialAccountId = requireEnv("MONIME_FINANCIAL_ACCOUNT_ID");
   const idempotencyKey = crypto.randomUUID();
 
   const body: Record<string, unknown> = {
@@ -49,6 +56,7 @@ export async function createPaymentCode(params: {
     duration: params.duration || "30m",
     customer: { name: params.customerName },
     reference: params.internalReference,
+    financialAccountId,
   };
   if (params.phone) body.authorizedPhoneNumber = params.phone;
 
@@ -93,6 +101,7 @@ export async function createRecurrentPaymentCode(params: {
 }): Promise<RecurrentPaymentCodeResult> {
   const accessToken = requireEnv("MONIME_ACCESS_TOKEN");
   const spaceId = requireEnv("MONIME_SPACE_ID");
+  const financialAccountId = requireEnv("MONIME_FINANCIAL_ACCOUNT_ID");
   const idempotencyKey = crypto.randomUUID();
 
   const body: Record<string, unknown> = {
@@ -102,6 +111,7 @@ export async function createRecurrentPaymentCode(params: {
     duration: params.duration,
     customer: { name: params.customerName },
     reference: params.internalReference,
+    financialAccountId,
   };
   if (params.recurrentPaymentTarget) body.recurrentPaymentTarget = params.recurrentPaymentTarget;
   // No phone restriction by default, so a parent/guardian can redeem the
