@@ -1,175 +1,197 @@
-import { Router, Response } from "express";
-import crypto from "crypto";
-import { AuthenticatedRequest, requireStudentAuth } from "../middleware/auth.js";
-import {
-  getSummaryForStudent,
-  getPayableOptionsForStudent,
-  validateRequestedAmount,
-  createSubmission,
-  getStatusForReference,
-  attachProviderReference,
-  getTransactionsForStudent,
-  ensureRecurrentPaymentCode,
-  SubmissionMethod,
-} from "../services/paymentPlanService.js";
-import { createPaymentCode } from "../services/monimeClient.js";
+import { Router } from "express";
+import express from "express";
+import { verifyMonimeSignature } from "../services/monimeClient.js";
+import { finalizeVerifiedPayment, generateMtecReference, expireSubmission } from "../services/paymentPlanService.js";
 import { getSupabase } from "../db/supabaseClient.js";
 
 const router = Router();
-router.use(requireStudentAuth);
 
-// GET /payments/summary — PaymentPlanSummary.fromJson() reads this verbatim.
-router.get("/summary", async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const summary = await getSummaryForStudent(req.studentRowId!);
-    res.json(summary);
-  } catch (err) {
-    console.error("[/payments/summary] error:", (err as Error).message);
-    res.status(404).json({ error: "No active payment plan found." });
+// Needs the RAW body for HMAC verification — parsing to JSON first and
+// re-serializing would change the bytes and break the signature check.
+router.post("/webhook", express.raw({ type: "application/json" }), async (req, res) => {
+  const rawBody = req.body as Buffer;
+
+  // TEMPORARY DIAGNOSTIC — uncomment while confirming the real payload
+  // shape for payment_code.completed (paymentId / paymentCodeId / amount
+  // field paths below are not yet verified against a real completed
+  // delivery, only against expired-event deliveries). Comment back out
+  // once confirmed — request headers/bodies shouldn't be logged forever.
+  // console.log("Webhook headers received:", req.headers);
+
+  const signatureHeaderName = process.env.MONIME_SIGNATURE_HEADER || "monime-signature";
+  const signature = req.headers[signatureHeaderName.toLowerCase()] as string | undefined;
+  const secret = process.env.MONIME_WEBHOOK_SECRET || "";
+
+  if (!verifyMonimeSignature(rawBody, signature, secret)) {
+    console.warn("[webhook] signature verification failed — rejecting");
+    return res.status(401).json({ error: "invalid_signature" });
   }
-});
 
-// GET /payments/options — returns a BARE array (not wrapped), matching
-// what PaymentApiClient.getPayableOptions() expects: it calls getArray()
-// which does `new JSONArray(body)` directly on the raw response, then
-// wraps it into { options: [...] } itself, client-side, for
-// MakePaymentActivity's convenience. Wrapping it here too would break
-// that parse with a JSONException.
-router.get("/options", async (req: AuthenticatedRequest, res: Response) => {
+  let payload: any;
   try {
-    const options = await getPayableOptionsForStudent(req.studentRowId!);
-    res.json(options);
-  } catch (err) {
-    console.error("[/payments/options] error:", (err as Error).message);
-    res.status(404).json({ error: "No active payment plan found." });
+    payload = JSON.parse(rawBody.toString("utf8"));
+  } catch {
+    return res.status(400).json({ error: "invalid_json" });
   }
-});
 
-type PaymentType = "recurrent" | "one_time";
+  const eventName = payload?.event?.name;
+  const eventId = payload?.event?.id;
 
-// POST /payments/initiate — { amount, method, paymentType? } -> { transaction, monime? }
-//
-// paymentType defaults to "one_time" so existing Android app builds that
-// don't send the field keep working unchanged. "recurrent" is the new
-// "Pay Monthly" flow using a single reusable USSD code.
-router.post("/initiate", async (req: AuthenticatedRequest, res: Response) => {
+  // UNCONFIRMED field paths for the recurrent case — captured here so a
+  // real payment_code.completed delivery can be checked against these
+  // before relying on the recurrent flow in production.
+  const processedPaymentData = payload?.data?.processedPaymentData;
+  const paymentId = processedPaymentData?.paymentId ?? payload?.data?.paymentId;
+  const paymentCodeId = payload?.data?.paymentCodeId ?? payload?.data?.id;
+  const amountMinor = processedPaymentData?.amount?.value ?? payload?.data?.amount?.value;
+  const providerReference = processedPaymentData?.reference ?? payload?.data?.reference;
+
+  // For a one-time code, `reference` is submission.id — set by /initiate
+  // before the Payment Code was created.
+  const oneTimeSubmissionId = payload?.data?.reference;
+
+  console.log(`[webhook] received ${eventName} (event ${eventId})`, { paymentId, paymentCodeId, oneTimeSubmissionId });
+
+  if (eventName === "payment_code.expired") {
+    // A one-time code's `reference` is the submission id (set at /initiate,
+    // same as the completed path). expireSubmission() is naturally
+    // idempotent (only touches status "pending"), so no separate
+    // event-id dedup is needed here.
+    if (oneTimeSubmissionId) {
+      try {
+        await expireSubmission(oneTimeSubmissionId);
+      } catch (err) {
+        console.error("[webhook] expireSubmission failed:", (err as Error).message);
+      }
+    }
+    return res.status(200).json({ received: true });
+  }
+
+  if (eventName !== "payment_code.completed") {
+    // Anything else we don't act on — 200 quickly so Monime doesn't keep retrying.
+    return res.status(200).json({ received: true });
+  }
+
+  const supabase = getSupabase();
+
+  // ---- Event-level idempotency (shared by both paths below) ----
+  const { data: existingEvent } = await supabase
+    .from("processed_webhook_events").select("event_id").eq("event_id", eventId).maybeSingle();
+  if (existingEvent) {
+    console.log(`[webhook] event ${eventId} already processed — idempotent no-op`);
+    return res.status(200).json({ received: true });
+  }
+
+  // =========================================================
+  // RECURRENT: look up by the plan's stored recurrent code id
+  // =========================================================
+  if (paymentCodeId) {
+    const { data: plan, error: planError } = await supabase
+      .from("payment_plans").select("*").eq("monime_recurrent_code_id", paymentCodeId).maybeSingle();
+
+    if (planError) {
+      console.error("[webhook] plan lookup failed:", planError.message);
+      return res.status(500).json({ error: "internal_error" });
+    }
+
+    if (plan) {
+      if (!paymentId || amountMinor == null) {
+        console.error("[webhook] missing payment data for recurrent event", { eventId, paymentId, amountMinor });
+        // Nothing safe to act on with an incomplete payload — ack so
+        // Monime doesn't retry forever, but don't mark it processed.
+        return res.status(200).json({ received: true });
+      }
+
+      // Payment-level idempotency — protects against the same Monime
+      // payment being processed twice even across separate events.
+      const { data: existingPayment } = await supabase
+        .from("payment_submissions").select("id, status").eq("monime_payment_id", paymentId).maybeSingle();
+      if (existingPayment) {
+        await supabase.from("processed_webhook_events").insert({ event_id: eventId });
+        return res.status(200).json({ received: true });
+      }
+
+      const amountLeones = Number(amountMinor) / 100;
+      const mtecReference = await generateMtecReference(plan.student_row_id as string);
+
+      const { data: submission, error: submissionError } = await supabase
+        .from("payment_submissions")
+        .insert({
+          mtec_reference: mtecReference,
+          payment_plan_id: plan.id,
+          student_row_id: plan.student_row_id,
+          amount: amountLeones,
+          method: "monime",
+          status: "pending",
+          monime_payment_code_id: paymentCodeId,
+          monime_payment_id: paymentId,
+          monime_transaction_reference: providerReference || null,
+          provider_reference: providerReference || null,
+        })
+        .select()
+        .single();
+
+      if (submissionError) {
+        if (submissionError.code === "23505") {
+          // A concurrent webhook delivery already created it.
+          return res.status(200).json({ received: true });
+        }
+        console.error("[webhook] recurrent submission creation failed:", submissionError.message);
+        return res.status(500).json({ error: "internal_error" });
+      }
+
+      try {
+        await finalizeVerifiedPayment(submission.id, "Monime (automatic)");
+        console.log(`[webhook] recurrent payment ${paymentId} finalized (submission ${submission.id})`);
+      } catch (err) {
+        console.error("[webhook] recurrent finalize failed:", (err as Error).message);
+        // Don't mark the event processed — let Monime retry.
+        return res.status(500).json({ error: "payment_processing_failed" });
+      }
+
+      const { error: eventError } = await supabase.from("processed_webhook_events").insert({ event_id: eventId });
+      if (eventError && eventError.code !== "23505") {
+        console.error("[webhook] event recording failed:", eventError.message);
+        return res.status(500).json({ error: "internal_error" });
+      }
+
+      return res.status(200).json({ received: true });
+    }
+  }
+
+  // =========================================================
+  // ONE-TIME: reference is the pre-created submission.id
+  // (unchanged from the original working one-time flow)
+  // =========================================================
+  if (!oneTimeSubmissionId) {
+    console.error("[webhook] payment_code.completed with no matching recurrent plan or submission reference");
+    return res.status(200).json({ received: true });
+  }
+
+  // Idempotency: Monime retries deliveries. A unique constraint on
+  // event_id means a retried delivery hits a conflict here and we bail
+  // out before touching anything else.
+  const { error: idempotencyError } = await supabase
+    .from("processed_webhook_events")
+    .insert({ event_id: eventId });
+
+  if (idempotencyError) {
+    if (idempotencyError.code === "23505") {
+      console.log(`[webhook] event ${eventId} already processed — idempotent no-op`);
+      return res.status(200).json({ received: true });
+    }
+    console.error("[webhook] idempotency insert failed:", idempotencyError.message);
+    return res.status(500).json({ error: "internal_error" });
+  }
+
   try {
-    const { amount, method, paymentType = "one_time" } = req.body as {
-      amount: number;
-      method: SubmissionMethod;
-      paymentType?: PaymentType;
-    };
-
-    if (!amount || !method) {
-      return res.status(400).json({ error: "amount and method are required." });
-    }
-    if (paymentType !== "recurrent" && paymentType !== "one_time") {
-      return res.status(400).json({ error: "Invalid payment type." });
-    }
-
-    const check = await validateRequestedAmount(req.studentRowId!, amount);
-    if (!check.valid) {
-      return res.status(400).json({ error: check.reason });
-    }
-
-    const supabase = getSupabase();
-
-    // ---- RECURRENT (monthly, reusable code) ----
-    if (method === "monime" && paymentType === "recurrent") {
-      const recurrentCode = await ensureRecurrentPaymentCode(req.studentRowId!);
-      // No submission is created here — one is created by the webhook
-      // each time this reusable code is actually redeemed.
-      return res.json({
-        transaction: { amount: recurrentCode.amount, paymentType: "recurrent" },
-        monime: {
-          paymentCodeId: recurrentCode.codeId,
-          ussdCode: recurrentCode.ussdCode,
-          expiresAt: recurrentCode.expireTime,
-          amount: recurrentCode.amount,
-          paymentType: "recurrent",
-        },
-      });
-    }
-
-    const submission = await createSubmission(req.studentRowId!, amount, method);
-
-    if (method === "monime") {
-      const { data: student } = await supabase
-        .from("students").select("phone, full_name").eq("id", req.studentRowId!).single();
-
-      const paymentCode = await createPaymentCode({
-        amountLeones: amount,
-        phone: student?.phone as string,
-        customerName: student?.full_name as string,
-        internalReference: submission.id as string, // matches submission.id, not a separate transaction id
-      });
-
-      // Track the Monime side alongside the submission so the webhook can
-      // find it back by payment code id / our submission id.
-      await supabase.from("payment_submissions").update({
-        provider_reference: paymentCode.paymentCodeId,
-        monime_payment_code_id: paymentCode.paymentCodeId,
-      }).eq("id", submission.id as string);
-
-      return res.json({
-        transaction: { mtecReference: submission.mtec_reference, amount, paymentType: "one_time" },
-        monime: {
-          paymentCodeId: paymentCode.paymentCodeId,
-          ussdCode: paymentCode.ussdCode,
-          expiresAt: paymentCode.expireTime,
-          amount,
-          paymentType: "one_time",
-        },
-      });
-    }
-
-    // Manual methods — no Monime object in the response; MakePaymentActivity
-    // only reads .getJSONObject("monime") when method === MONIME.
-    res.json({ transaction: { mtecReference: submission.mtec_reference, amount, paymentType: "one_time" } });
+    await finalizeVerifiedPayment(oneTimeSubmissionId, "Monime (automatic)");
+    console.log(`[webhook] submission ${oneTimeSubmissionId} finalized`);
   } catch (err) {
-    console.error("[/payments/initiate] error:", (err as Error).message);
-    res.status(500).json({ error: "Could not start payment. Please try again." });
+    console.error("[webhook] finalize failed:", (err as Error).message);
   }
-});
 
-// GET /payments/status/:reference — polled by MonimePaymentActivity.
-router.get("/status/:reference", async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const result = await getStatusForReference(req.studentRowId!, req.params.reference);
-    res.json(result);
-  } catch (err) {
-    console.error("[/payments/status] error:", (err as Error).message);
-    res.status(500).json({ error: "Could not check status." });
-  }
-});
-
-// POST /payments/submit-manual — { mtecReference, providerReference }
-router.post("/submit-manual", async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const { mtecReference, providerReference } = req.body;
-    if (!mtecReference || !providerReference) {
-      return res.status(400).json({ error: "mtecReference and providerReference are required." });
-    }
-    const result = await attachProviderReference(req.studentRowId!, mtecReference, providerReference);
-    if (!result.success) {
-      return res.status(409).json({ error: result.reason });
-    }
-    res.json({ success: true });
-  } catch (err) {
-    console.error("[/payments/submit-manual] error:", (err as Error).message);
-    res.status(500).json({ error: "Could not submit payment." });
-  }
-});
-
-// GET /payments/transactions — full payment history, matches image 1.
-router.get("/transactions", async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const transactions = await getTransactionsForStudent(req.studentRowId!);
-    res.json({ transactions });
-  } catch (err) {
-    console.error("[/payments/transactions] error:", (err as Error).message);
-    res.status(500).json({ error: "Could not load transactions." });
-  }
+  res.status(200).json({ received: true });
 });
 
 export default router;
