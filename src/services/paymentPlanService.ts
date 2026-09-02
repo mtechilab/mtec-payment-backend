@@ -151,12 +151,39 @@ export async function getPayableOptionsForStudent(studentRowId: string) {
   return options;
 }
 
+/** Sum of amounts tied up in this student's unresolved submissions —
+ *  "pending" (Monime code issued/manual instructions shown, nothing
+ *  confirmed yet) or "under_review" (manual reference submitted, awaiting
+ *  finance sign-off). Both are money that MIGHT still land, so it has to
+ *  count against the balance even though outstandingBalance itself
+ *  (derived from amount_paid on periods) doesn't move until verified. */
+async function getReservedAmount(studentRowId: string): Promise<number> {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from("payment_submissions")
+    .select("amount")
+    .eq("student_row_id", studentRowId)
+    .in("status", ["pending", "under_review"]);
+  if (error) throw new Error(`getReservedAmount failed: ${error.message}`);
+  return (data || []).reduce((sum, s) => sum + Number(s.amount), 0);
+}
+
 /** The other half of "never trust the client" — every initiate call runs
  *  through this before anything else happens. */
 export async function validateRequestedAmount(studentRowId: string, requestedAmount: number) {
   const summary = await getSummaryForStudent(studentRowId);
   if (requestedAmount <= 0) return { valid: false as const, reason: "Amount must be greater than zero." };
-  if (requestedAmount > summary.outstandingBalance) {
+
+  const reserved = await getReservedAmount(studentRowId);
+  const availableBalance = summary.outstandingBalance - reserved;
+
+  if (requestedAmount > availableBalance) {
+    if (reserved > 0) {
+      return {
+        valid: false as const,
+        reason: `You have ${reserved} pending in unresolved payments. Cancel or complete those first — available balance to pay is ${availableBalance}.`,
+      };
+    }
     return { valid: false as const, reason: `Amount exceeds outstanding balance of ${summary.outstandingBalance}.` };
   }
   const MINIMUM_PARTIAL_AMOUNT = 100;
@@ -269,6 +296,41 @@ export async function finalizeVerifiedPayment(submissionId: string, verifiedBy: 
 export async function rejectSubmission(submissionId: string, reason: string) {
   const supabase = getSupabase();
   await supabase.from("payment_submissions").update({ status: "rejected", rejection_reason: reason }).eq("id", submissionId);
+}
+
+/** Called by the webhook on `payment_code.expired`. Only touches a
+ *  submission still sitting at "pending" — if it's already verified or
+ *  under_review (a manual reference was submitted, or the payment
+ *  actually completed) a late/out-of-order expiry event must not
+ *  clobber that. Safe to call more than once. */
+export async function expireSubmission(submissionId: string) {
+  const supabase = getSupabase();
+  const { data: submission, error } = await supabase
+    .from("payment_submissions").select("status").eq("id", submissionId).maybeSingle();
+  if (error || !submission || submission.status !== "pending") return;
+  await supabase.from("payment_submissions")
+    .update({ status: "failed", rejection_reason: "Payment code expired before completion." })
+    .eq("id", submissionId);
+}
+
+/** POST /payments/:reference/cancel — a student backing out of the Monime
+ *  USSD screen (or any other still-pending attempt) before it resolves.
+ *  Same "only touch pending" guard as expireSubmission, plus it's scoped
+ *  to the requesting student so one student can't cancel another's
+ *  submission by guessing a reference. */
+export async function cancelSubmission(studentRowId: string, mtecReference: string) {
+  const supabase = getSupabase();
+  const { data: submission, error } = await supabase
+    .from("payment_submissions").select("id, status")
+    .eq("mtec_reference", mtecReference).eq("student_row_id", studentRowId).maybeSingle();
+  if (error || !submission) return { success: false as const, reason: "Payment reference not found." };
+  if (submission.status !== "pending") {
+    return { success: false as const, reason: "This payment can no longer be cancelled." };
+  }
+  await supabase.from("payment_submissions")
+    .update({ status: "failed", rejection_reason: "Cancelled by student." })
+    .eq("id", submission.id as string);
+  return { success: true as const };
 }
 
 /** POST /payments/initiate — creates the submission; for Monime, the
