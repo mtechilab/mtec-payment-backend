@@ -11,12 +11,16 @@ const router = Router();
 router.post("/webhook", express.raw({ type: "application/json" }), async (req, res) => {
   const rawBody = req.body as Buffer;
 
-  // TEMPORARY DIAGNOSTIC — uncomment while confirming the real payload
-  // shape for payment_code.completed (paymentId / paymentCodeId / amount
-  // field paths below are not yet verified against a real completed
-  // delivery, only against expired-event deliveries). Comment back out
-  // once confirmed — request headers/bodies shouldn't be logged forever.
-  // console.log("Webhook headers received:", req.headers);
+  // Concrete check, not a guess: if these two numbers disagree, the bytes
+  // we're hashing are provably NOT what Monime sent (truncated, re-encoded,
+  // or altered somewhere in the proxy chain — Cloudflare + Render both sit
+  // in front of this route per the b3/cf-*/rndr-id headers already seen).
+  // If they match, transport corruption is ruled out entirely and the
+  // remaining suspects narrow to the signing construction itself.
+  const declaredLength = Number(req.headers["content-length"]);
+  if (Number.isFinite(declaredLength) && rawBody.length !== declaredLength) {
+    console.warn(`[webhook] ALERT: body length mismatch — received ${rawBody.length} bytes, content-length header said ${declaredLength}`);
+  }
 
   const signatureHeaderName = process.env.MONIME_SIGNATURE_HEADER || "monime-signature";
   const signature = req.headers[signatureHeaderName.toLowerCase()] as string | undefined;
@@ -28,7 +32,7 @@ router.post("/webhook", express.raw({ type: "application/json" }), async (req, r
       // These are safe to log — one-way HMAC outputs, not the secret
       // itself. Whichever candidate.value exactly equals `provided` here
       // tells us which construction Monime actually uses.
-      console.warn(`[webhook] signature verification failed (mismatch) — provided: ${signatureCheck.provided}`);
+      console.warn(`[webhook] signature verification failed (mismatch) — provided: ${signatureCheck.provided}, body length: ${rawBody.length}`);
       for (const c of signatureCheck.candidates) {
         console.warn(`[webhook]   candidate "${c.label}": ${c.value}`);
       }
