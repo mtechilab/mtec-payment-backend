@@ -158,7 +158,8 @@ export async function createRecurrentPaymentCode(params: {
  */
 export type SignatureCheckResult =
   | { valid: true }
-  | { valid: false; reason: "missing_secret" | "missing_header" | "malformed_header" | "timestamp_too_old" | "mismatch" };
+  | { valid: false; reason: "missing_secret" | "missing_header" | "malformed_header" | "timestamp_too_old" }
+  | { valid: false; reason: "mismatch"; provided: string; candidates: { label: string; value: string }[] };
 
 export function verifyMonimeSignature(rawBody: Buffer, signatureHeader: string | undefined, secret: string): SignatureCheckResult {
   // Checked first and separately from a bad/missing header: if the env var
@@ -185,13 +186,35 @@ export function verifyMonimeSignature(rawBody: Buffer, signatureHeader: string |
   const ageSeconds = Math.abs(Date.now() / 1000 - timestampSeconds);
   if (ageSeconds > 300) return { valid: false, reason: "timestamp_too_old" }; // reject anything older than 5 minutes
 
-  const signedPayload = Buffer.concat([Buffer.from(`${timestamp}.`, "utf8"), rawBody]);
-  const expected = crypto.createHmac("sha256", secret).update(signedPayload).digest("base64");
+  const hmacBase64 = (payload: Buffer) => crypto.createHmac("sha256", secret).update(payload).digest("base64");
+
+  // Primary construction — Stripe/Monite-style "timestamp.body". Never
+  // actually confirmed to match Monime's real scheme (only assumed by
+  // convention), so on mismatch below we also compute the next most
+  // plausible alternatives to compare side by side against a real
+  // delivery, rather than guessing again one at a time.
+  const dotJoined = Buffer.concat([Buffer.from(`${timestamp}.`, "utf8"), rawBody]);
+  const expected = hmacBase64(dotJoined);
 
   try {
     const matches = crypto.timingSafeEqual(Buffer.from(providedSignature), Buffer.from(expected));
-    return matches ? { valid: true } : { valid: false, reason: "mismatch" };
+    if (matches) return { valid: true };
   } catch {
-    return { valid: false, reason: "mismatch" }; // length mismatch — definitely not a match, not a crash
+    // length mismatch — definitely not a match, fall through to report candidates
   }
+
+  const noSeparator = Buffer.concat([Buffer.from(timestamp, "utf8"), rawBody]);
+  const colonJoined = Buffer.concat([Buffer.from(`${timestamp}:`, "utf8"), rawBody]);
+
+  return {
+    valid: false,
+    reason: "mismatch",
+    provided: providedSignature,
+    candidates: [
+      { label: "timestamp.body (current)", value: expected },
+      { label: "timestamp+body (no separator)", value: hmacBase64(noSeparator) },
+      { label: "timestamp:body (colon)", value: hmacBase64(colonJoined) },
+      { label: "body only (no timestamp)", value: hmacBase64(rawBody) },
+    ],
+  };
 }
