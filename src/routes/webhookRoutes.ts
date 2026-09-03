@@ -16,7 +16,7 @@ router.post("/webhook", express.raw({ type: "application/json" }), async (req, r
   // field paths below are not yet verified against a real completed
   // delivery, only against expired-event deliveries). Comment back out
   // once confirmed — request headers/bodies shouldn't be logged forever.
-  // console.log("Webhook headers received:", req.headers);
+  console.log("Webhook headers received:", req.headers);
 
   const signatureHeaderName = process.env.MONIME_SIGNATURE_HEADER || "monime-signature";
   const signature = req.headers[signatureHeaderName.toLowerCase()] as string | undefined;
