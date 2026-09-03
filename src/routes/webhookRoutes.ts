@@ -24,7 +24,12 @@ router.post("/webhook", express.raw({ type: "application/json" }), async (req, r
 
   const signatureCheck = verifyMonimeSignature(rawBody, signature, secret);
   if (!signatureCheck.valid) {
-    console.warn(`[webhook] signature verification failed (${signatureCheck.reason}) — rejecting`);
+    // Never log the secret itself — but its length is enough to catch the
+    // single most common cause of a "mismatch" (as opposed to
+    // missing_secret): a trailing space/newline picked up from copy-paste
+    // into Render's env var editor, which silently changes the length.
+    const extra = signatureCheck.reason === "mismatch" ? ` [configured secret length: ${secret.length}]` : "";
+    console.warn(`[webhook] signature verification failed (${signatureCheck.reason}) — rejecting${extra}`);
     return res.status(401).json({ error: "invalid_signature" });
   }
 
@@ -196,4 +201,3 @@ router.post("/webhook", express.raw({ type: "application/json" }), async (req, r
 });
 
 export default router;
-
