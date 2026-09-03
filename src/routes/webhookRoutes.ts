@@ -16,7 +16,7 @@ router.post("/webhook", express.raw({ type: "application/json" }), async (req, r
   // field paths below are not yet verified against a real completed
   // delivery, only against expired-event deliveries). Comment back out
   // once confirmed — request headers/bodies shouldn't be logged forever.
-  console.log("Webhook headers received:", req.headers);
+  // console.log("Webhook headers received:", req.headers);
 
   const signatureHeaderName = process.env.MONIME_SIGNATURE_HEADER || "monime-signature";
   const signature = req.headers[signatureHeaderName.toLowerCase()] as string | undefined;
@@ -24,12 +24,17 @@ router.post("/webhook", express.raw({ type: "application/json" }), async (req, r
 
   const signatureCheck = verifyMonimeSignature(rawBody, signature, secret);
   if (!signatureCheck.valid) {
-    // Never log the secret itself — but its length is enough to catch the
-    // single most common cause of a "mismatch" (as opposed to
-    // missing_secret): a trailing space/newline picked up from copy-paste
-    // into Render's env var editor, which silently changes the length.
-    const extra = signatureCheck.reason === "mismatch" ? ` [configured secret length: ${secret.length}]` : "";
-    console.warn(`[webhook] signature verification failed (${signatureCheck.reason}) — rejecting${extra}`);
+    if (signatureCheck.reason === "mismatch") {
+      // These are safe to log — one-way HMAC outputs, not the secret
+      // itself. Whichever candidate.value exactly equals `provided` here
+      // tells us which construction Monime actually uses.
+      console.warn(`[webhook] signature verification failed (mismatch) — provided: ${signatureCheck.provided}`);
+      for (const c of signatureCheck.candidates) {
+        console.warn(`[webhook]   candidate "${c.label}": ${c.value}`);
+      }
+    } else {
+      console.warn(`[webhook] signature verification failed (${signatureCheck.reason}) — rejecting`);
+    }
     return res.status(401).json({ error: "invalid_signature" });
   }
 
