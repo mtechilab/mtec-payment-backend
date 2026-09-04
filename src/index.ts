@@ -10,10 +10,14 @@ const app = express();
 // alone gets the unparsed buffer; every other route gets normal JSON.
 app.use("/api/payments", webhookRoutes);
 <<<<<<< HEAD
+<<<<<<< HEAD
 //app.get('/health', (req, res) => res.status(200).send('OK'));
 =======
 
 >>>>>>> 36cdb6a (Initial commit)
+=======
+
+>>>>>>> 83cdb68 (add update)
 app.use(express.json());
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
@@ -26,10 +30,14 @@ app.use("/auth", authRoutes);
 app.use("/payments", paymentRoutes);
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 app.get("/health", (req, res) => res.json({ status: "ok" }));
 =======
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
 >>>>>>> 36cdb6a (Initial commit)
+=======
+app.get("/health", (_req, res) => res.json({ status: "ok" }));
+>>>>>>> 83cdb68 (add update)
 
 const port = process.env.PORT || 4000;
 app.listen(port, () => {

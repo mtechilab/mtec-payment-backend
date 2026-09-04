@@ -131,7 +131,11 @@ export interface Database {
     Functions: Record<string, never>;
   };
 <<<<<<< HEAD
+<<<<<<< HEAD
       }
 =======
 }
 >>>>>>> 36cdb6a (Initial commit)
+=======
+}
+>>>>>>> 83cdb68 (add update)
