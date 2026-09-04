@@ -140,33 +140,26 @@ export async function createRecurrentPaymentCode(params: {
   return { paymentCodeId: json.result.id, ussdCode: json.result.ussdCode, expireTime: json.result.expireTime };
 }
 
-/**
- * HMAC verification for incoming webhooks. Confirmed against a real
- * captured delivery (not guessed): Monime's `monime-signature` header
- * uses the same t=<timestamp>,v1=<signature> pattern as Stripe, Mux,
- * Monite, and Zoho — but unlike those (hex), Monime's v1 value is
- * base64-encoded, confirmed by the '+', '/', and '=' padding characters
- * in a real captured signature, which are not valid hex.
- *
- * Signed payload construction (`${timestamp}.${rawBody}`, dot-joined)
- * matches the near-universal convention across every provider using this
- * header shape — this is the standard construction, not a guess specific
- * to Monime.
- *
- * Also rejects timestamps older than 5 minutes, standard replay-attack
- * protection used by every provider in this family (Stripe, Zoho, etc).
- */
 export type SignatureCheckResult =
   | { valid: true }
   | { valid: false; reason: "missing_secret" | "missing_header" | "malformed_header" | "timestamp_too_old" }
   | { valid: false; reason: "mismatch"; provided: string; candidates: { label: string; value: string }[] };
 
+/**
+ * HMAC verification for incoming webhooks.
+ *
+ * Every "mismatch" delivery so far has failed ALL FOUR body-construction
+ * candidates uniformly — that pattern points at the SECRET being wrong
+ * (a wrong secret fails every construction equally), not the message
+ * construction. Still, this now also tries decoding the secret as base64
+ * before use as the HMAC key: providers using this t=...,v1=... header
+ * shape (Svix and Svix-compatible implementations) commonly issue a
+ * base64-encoded secret that must be decoded to raw bytes first, rather
+ * than used as literal UTF-8 text — an easy thing to get wrong and one
+ * that produces exactly this "every candidate fails" symptom even with
+ * the correct secret value pasted in.
+ */
 export function verifyMonimeSignature(rawBody: Buffer, signatureHeader: string | undefined, secret: string): SignatureCheckResult {
-  // Checked first and separately from a bad/missing header: if the env var
-  // itself is empty, every delivery will fail HMAC comparison no matter
-  // what Monime sends — worth distinguishing in logs from "Monime sent a
-  // malformed signature", since the fix is completely different (an env
-  // var to set on Render vs. something to report to Monime).
   if (!secret) return { valid: false, reason: "missing_secret" };
   if (!signatureHeader) return { valid: false, reason: "missing_header" };
 
@@ -184,33 +177,60 @@ export function verifyMonimeSignature(rawBody: Buffer, signatureHeader: string |
   const timestampSeconds = Number(timestamp);
   if (!Number.isFinite(timestampSeconds)) return { valid: false, reason: "malformed_header" };
   const ageSeconds = Math.abs(Date.now() / 1000 - timestampSeconds);
-  if (ageSeconds > 300) return { valid: false, reason: "timestamp_too_old" }; // reject anything older than 5 minutes
+  if (ageSeconds > 300) return { valid: false, reason: "timestamp_too_old" };
 
-  const hmacBase64 = (payload: Buffer) => crypto.createHmac("sha256", secret).update(payload).digest("base64");
-
-  // Primary construction — Stripe/Monite-style "timestamp.body". Never
-  // actually confirmed to match Monime's real scheme (only assumed by
-  // convention), so on mismatch below we also compute the next most
-  // plausible alternatives to compare side by side against a real
-  // delivery, rather than guessing again one at a time.
   const dotJoined = Buffer.concat([Buffer.from(`${timestamp}.`, "utf8"), rawBody]);
-  const expected = hmacBase64(dotJoined);
-
-  try {
-    const matches = crypto.timingSafeEqual(Buffer.from(providedSignature), Buffer.from(expected));
-    if (matches) return { valid: true };
-  } catch {
-    // length mismatch — definitely not a match, fall through to report candidates
-  }
-
   const noSeparator = Buffer.concat([Buffer.from(timestamp, "utf8"), rawBody]);
   const colonJoined = Buffer.concat([Buffer.from(`${timestamp}:`, "utf8"), rawBody]);
+
+  // Two candidate keys: the secret used literally as UTF-8 text (what was
+  // tried before), and the secret base64-decoded into raw key bytes
+  // (new — untested until now).
+  const keyCandidates: { label: string; key: Buffer }[] = [
+    { label: "utf8", key: Buffer.from(secret, "utf8") },
+  ];
+  try {
+    const decoded = Buffer.from(secret, "base64");
+    // Only worth trying as a distinct candidate if it actually round-trips
+    // — avoids a duplicate, confusing entry when the secret has no
+    // base64-only characters at all.
+    if (decoded.length > 0 && decoded.toString("base64").replace(/=+$/, "") === secret.replace(/=+$/, "")) {
+      keyCandidates.push({ label: "base64-decoded", key: decoded });
+    }
+  } catch {
+    // not valid base64 — skip, utf8 candidate above still applies
+  }
+
+  const bodyCandidates: { label: string; payload: Buffer }[] = [
+    { label: "timestamp.body", payload: dotJoined },
+    { label: "timestamp+body (no separator)", payload: noSeparator },
+    { label: "timestamp:body (colon)", payload: colonJoined },
+    { label: "body only (no timestamp)", payload: rawBody },
+  ];
+
+  const allCandidates: { label: string; value: string }[] = [];
+  for (const keyC of keyCandidates) {
+    for (const bodyC of bodyCandidates) {
+      const value = crypto.createHmac("sha256", keyC.key).update(bodyC.payload).digest("base64");
+      allCandidates.push({ label: `key=${keyC.label}, body=${bodyC.label}`, value });
+
+      try {
+        if (crypto.timingSafeEqual(Buffer.from(providedSignature), Buffer.from(value))) {
+          return { valid: true };
+        }
+      } catch {
+        // length mismatch on this candidate — not a match, keep checking others
+      }
+    }
+  }
 
   return {
     valid: false,
     reason: "mismatch",
     provided: providedSignature,
-    candidates: [
+    candidates: allCandidates,
+  };
+}    candidates: [
       { label: "timestamp.body (current)", value: expected },
       { label: "timestamp+body (no separator)", value: hmacBase64(noSeparator) },
       { label: "timestamp:body (colon)", value: hmacBase64(colonJoined) },
