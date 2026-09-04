@@ -169,7 +169,15 @@ async function getReservedAmount(studentRowId: string): Promise<number> {
 }
 
 /** The other half of "never trust the client" — every initiate call runs
- *  through this before anything else happens. */
+ *  through this before anything else happens.
+ *
+ *  MINIMUM_PARTIAL_AMOUNT used to be a flat NLe 100 regardless of plan
+ *  size — broke on small/test plans (e.g. an NLe 8 total plan, where 100
+ *  exceeds even the Maximum shown to the student). It's now scaled to the
+ *  plan itself: half a period's amount, capped at NLe 2 as an absolute
+ *  floor so it's never zero or negative. Whole-period-multiple amounts
+ *  still bypass this check entirely, same as before — this only affects
+ *  custom/partial amounts smaller than one period. */
 export async function validateRequestedAmount(studentRowId: string, requestedAmount: number) {
   const summary = await getSummaryForStudent(studentRowId);
   if (requestedAmount <= 0) return { valid: false as const, reason: "Amount must be greater than zero." };
@@ -186,8 +194,9 @@ export async function validateRequestedAmount(studentRowId: string, requestedAmo
     }
     return { valid: false as const, reason: `Amount exceeds outstanding balance of ${summary.outstandingBalance}.` };
   }
-  const MINIMUM_PARTIAL_AMOUNT = 2;
+
   const periodAmount = summary.plan.totalAmount / summary.periods.length;
+  const MINIMUM_PARTIAL_AMOUNT = Math.max(2, Math.min(100, periodAmount / 2));
   const isWholePeriodMultiple = Math.abs(requestedAmount % periodAmount) < 0.01;
   if (!isWholePeriodMultiple && requestedAmount < MINIMUM_PARTIAL_AMOUNT) {
     return {
