@@ -130,4 +130,8 @@ export interface Database {
     Views: Record<string, never>;
     Functions: Record<string, never>;
   };
+<<<<<<< HEAD
       }
+=======
+}
+>>>>>>> 36cdb6a (Initial commit)

@@ -206,7 +206,19 @@ create table payment_plans (
   plan_start_date date not null,
   plan_end_date date not null,
   status text not null default 'active' check (status in ('active','completed','cancelled')),
+<<<<<<< HEAD
   created_at timestamptz not null default now()
+=======
+  created_at timestamptz not null default now(),
+  -- Reusable ("Pay Monthly") Monime recurrent payment code, cached per
+  -- plan so it's created once and reused across redemptions. See
+  -- migrations/002_recurrent_payments.sql for the migration on existing
+  -- databases.
+  monime_recurrent_code_id text,
+  monime_recurrent_ussd_code text,
+  monime_recurrent_expire_time timestamptz,
+  monime_recurrent_amount numeric
+>>>>>>> 36cdb6a (Initial commit)
 );
 create index idx_payment_plans_student on payment_plans (student_row_id);
 
@@ -244,7 +256,17 @@ create table payment_submissions (
   verified_by text,                      -- finance officer name, for manual methods
   verified_at timestamptz,
   rejection_reason text,
+<<<<<<< HEAD
   created_at timestamptz not null default now()
+=======
+  created_at timestamptz not null default now(),
+  -- Monime-side identifiers, populated for both one-time and recurrent
+  -- redemptions so the webhook can trace a submission back to its
+  -- payment code / individual payment.
+  monime_payment_code_id text,
+  monime_payment_id text,
+  monime_transaction_reference text
+>>>>>>> 36cdb6a (Initial commit)
 );
 create index idx_payment_submissions_plan on payment_submissions (payment_plan_id);
 create index idx_payment_submissions_student on payment_submissions (student_row_id);
@@ -256,6 +278,15 @@ create unique index idx_unique_provider_reference
   on payment_submissions (method, provider_reference)
   where provider_reference is not null;
 
+<<<<<<< HEAD
+=======
+-- Prevents the same individual Monime payment (one redemption of a
+-- recurrent code) from being processed into two submissions.
+create unique index idx_unique_monime_payment_id
+  on payment_submissions (monime_payment_id)
+  where monime_payment_id is not null;
+
+>>>>>>> 36cdb6a (Initial commit)
 -- ---- Academics -------------------------------------------------
 
 create table courses (
