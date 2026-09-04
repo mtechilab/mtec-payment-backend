@@ -186,7 +186,7 @@ export async function validateRequestedAmount(studentRowId: string, requestedAmo
     }
     return { valid: false as const, reason: `Amount exceeds outstanding balance of ${summary.outstandingBalance}.` };
   }
-  const MINIMUM_PARTIAL_AMOUNT = 100;
+  const MINIMUM_PARTIAL_AMOUNT = 2;
   const periodAmount = summary.plan.totalAmount / summary.periods.length;
   const isWholePeriodMultiple = Math.abs(requestedAmount % periodAmount) < 0.01;
   if (!isWholePeriodMultiple && requestedAmount < MINIMUM_PARTIAL_AMOUNT) {
