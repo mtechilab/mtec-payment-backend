@@ -11,12 +11,6 @@ const router = Router();
 router.post("/webhook", express.raw({ type: "application/json" }), async (req, res) => {
   const rawBody = req.body as Buffer;
 
-  // Concrete check, not a guess: if these two numbers disagree, the bytes
-  // we're hashing are provably NOT what Monime sent (truncated, re-encoded,
-  // or altered somewhere in the proxy chain — Cloudflare + Render both sit
-  // in front of this route per the b3/cf-*/rndr-id headers already seen).
-  // If they match, transport corruption is ruled out entirely and the
-  // remaining suspects narrow to the signing construction itself.
   const declaredLength = Number(req.headers["content-length"]);
   if (Number.isFinite(declaredLength) && rawBody.length !== declaredLength) {
     console.warn(`[webhook] ALERT: body length mismatch — received ${rawBody.length} bytes, content-length header said ${declaredLength}`);
@@ -29,9 +23,6 @@ router.post("/webhook", express.raw({ type: "application/json" }), async (req, r
   const signatureCheck = verifyMonimeSignature(rawBody, signature, secret);
   if (!signatureCheck.valid) {
     if (signatureCheck.reason === "mismatch") {
-      // These are safe to log — one-way HMAC outputs, not the secret
-      // itself. Whichever candidate.value exactly equals `provided` here
-      // tells us which construction Monime actually uses.
       console.warn(`[webhook] signature verification failed (mismatch) — provided: ${signatureCheck.provided}, body length: ${rawBody.length}`);
       for (const c of signatureCheck.candidates) {
         console.warn(`[webhook]   candidate "${c.label}": ${c.value}`);
@@ -52,9 +43,6 @@ router.post("/webhook", express.raw({ type: "application/json" }), async (req, r
   const eventName = payload?.event?.name;
   const eventId = payload?.event?.id;
 
-  // UNCONFIRMED field paths for the recurrent case — captured here so a
-  // real payment_code.completed delivery can be checked against these
-  // before relying on the recurrent flow in production.
   const processedPaymentData = payload?.data?.processedPaymentData;
   const paymentId = processedPaymentData?.paymentId ?? payload?.data?.paymentId;
   const paymentCodeId = payload?.data?.paymentCodeId ?? payload?.data?.id;
@@ -66,6 +54,42 @@ router.post("/webhook", express.raw({ type: "application/json" }), async (req, r
   const oneTimeSubmissionId = payload?.data?.reference;
 
   console.log(`[webhook] received ${eventName} (event ${eventId})`, { paymentId, paymentCodeId, oneTimeSubmissionId });
+
+  // ---------------------------------------------------------------------
+  // ACK FIRST, PROCESS AFTER.
+  //
+  // Every branch below used to `await` its Supabase work before sending a
+  // response, which meant Monime's ~10s delivery timeout was effectively a
+  // timeout on OUR database, not just on our server being reachable. A
+  // slow/cold Supabase round trip on any single call was enough to blow
+  // the whole delivery (confirmed live: `payment_code.expired` deliveries
+  // timing out at exactly ~10000ms with HTTP code -1, meaning Monime never
+  // even got a response to time out gracefully from).
+  //
+  // Once we've verified the signature and parsed the JSON, there's nothing
+  // else Monime needs from us — respond 200 immediately, then do the
+  // actual DB work in the background. Errors during that background work
+  // are logged, not surfaced to Monime; Monime's own retry schedule still
+  // covers "we crashed before finishing," but a slow-but-successful DB
+  // call no longer costs us a delivery.
+  // ---------------------------------------------------------------------
+  res.status(200).json({ received: true });
+
+  processWebhookEvent({ eventName, eventId, paymentId, paymentCodeId, amountMinor, providerReference, oneTimeSubmissionId }).catch((err) => {
+    console.error(`[webhook] unhandled error processing ${eventName} (event ${eventId}):`, (err as Error).message);
+  });
+});
+
+async function processWebhookEvent(args: {
+  eventName: string | undefined;
+  eventId: string | undefined;
+  paymentId: string | undefined;
+  paymentCodeId: string | undefined;
+  amountMinor: number | undefined;
+  providerReference: string | undefined;
+  oneTimeSubmissionId: string | undefined;
+}) {
+  const { eventName, eventId, paymentId, paymentCodeId, amountMinor, providerReference, oneTimeSubmissionId } = args;
 
   if (eventName === "payment_code.expired") {
     // A one-time code's `reference` is the submission id (set at /initiate,
@@ -79,12 +103,17 @@ router.post("/webhook", express.raw({ type: "application/json" }), async (req, r
         console.error("[webhook] expireSubmission failed:", (err as Error).message);
       }
     }
-    return res.status(200).json({ received: true });
+    return;
   }
 
   if (eventName !== "payment_code.completed") {
-    // Anything else we don't act on — 200 quickly so Monime doesn't keep retrying.
-    return res.status(200).json({ received: true });
+    // Anything else we don't act on.
+    return;
+  }
+
+  if (!eventId) {
+    console.error("[webhook] payment_code.completed missing event id — cannot dedupe, skipping");
+    return;
   }
 
   const supabase = getSupabase();
@@ -94,7 +123,7 @@ router.post("/webhook", express.raw({ type: "application/json" }), async (req, r
     .from("processed_webhook_events").select("event_id").eq("event_id", eventId).maybeSingle();
   if (existingEvent) {
     console.log(`[webhook] event ${eventId} already processed — idempotent no-op`);
-    return res.status(200).json({ received: true });
+    return;
   }
 
   // =========================================================
@@ -106,15 +135,13 @@ router.post("/webhook", express.raw({ type: "application/json" }), async (req, r
 
     if (planError) {
       console.error("[webhook] plan lookup failed:", planError.message);
-      return res.status(500).json({ error: "internal_error" });
+      return;
     }
 
     if (plan) {
       if (!paymentId || amountMinor == null) {
         console.error("[webhook] missing payment data for recurrent event", { eventId, paymentId, amountMinor });
-        // Nothing safe to act on with an incomplete payload — ack so
-        // Monime doesn't retry forever, but don't mark it processed.
-        return res.status(200).json({ received: true });
+        return;
       }
 
       // Payment-level idempotency — protects against the same Monime
@@ -123,7 +150,7 @@ router.post("/webhook", express.raw({ type: "application/json" }), async (req, r
         .from("payment_submissions").select("id, status").eq("monime_payment_id", paymentId).maybeSingle();
       if (existingPayment) {
         await supabase.from("processed_webhook_events").insert({ event_id: eventId });
-        return res.status(200).json({ received: true });
+        return;
       }
 
       const amountLeones = Number(amountMinor) / 100;
@@ -149,10 +176,10 @@ router.post("/webhook", express.raw({ type: "application/json" }), async (req, r
       if (submissionError) {
         if (submissionError.code === "23505") {
           // A concurrent webhook delivery already created it.
-          return res.status(200).json({ received: true });
+          return;
         }
         console.error("[webhook] recurrent submission creation failed:", submissionError.message);
-        return res.status(500).json({ error: "internal_error" });
+        return;
       }
 
       try {
@@ -160,17 +187,15 @@ router.post("/webhook", express.raw({ type: "application/json" }), async (req, r
         console.log(`[webhook] recurrent payment ${paymentId} finalized (submission ${submission.id})`);
       } catch (err) {
         console.error("[webhook] recurrent finalize failed:", (err as Error).message);
-        // Don't mark the event processed — let Monime retry.
-        return res.status(500).json({ error: "payment_processing_failed" });
+        // Don't mark the event processed — a later manual retry / reconciliation can pick this up.
+        return;
       }
 
       const { error: eventError } = await supabase.from("processed_webhook_events").insert({ event_id: eventId });
       if (eventError && eventError.code !== "23505") {
         console.error("[webhook] event recording failed:", eventError.message);
-        return res.status(500).json({ error: "internal_error" });
       }
-
-      return res.status(200).json({ received: true });
+      return;
     }
   }
 
@@ -180,7 +205,7 @@ router.post("/webhook", express.raw({ type: "application/json" }), async (req, r
   // =========================================================
   if (!oneTimeSubmissionId) {
     console.error("[webhook] payment_code.completed with no matching recurrent plan or submission reference");
-    return res.status(200).json({ received: true });
+    return;
   }
 
   // Idempotency: Monime retries deliveries. A unique constraint on
@@ -193,10 +218,10 @@ router.post("/webhook", express.raw({ type: "application/json" }), async (req, r
   if (idempotencyError) {
     if (idempotencyError.code === "23505") {
       console.log(`[webhook] event ${eventId} already processed — idempotent no-op`);
-      return res.status(200).json({ received: true });
+      return;
     }
     console.error("[webhook] idempotency insert failed:", idempotencyError.message);
-    return res.status(500).json({ error: "internal_error" });
+    return;
   }
 
   try {
@@ -205,8 +230,6 @@ router.post("/webhook", express.raw({ type: "application/json" }), async (req, r
   } catch (err) {
     console.error("[webhook] finalize failed:", (err as Error).message);
   }
-
-  res.status(200).json({ received: true });
-});
+}
 
 export default router;
