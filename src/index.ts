@@ -9,7 +9,7 @@ const app = express();
 // Webhook route needs raw body — registered before express.json() so it
 // alone gets the unparsed buffer; every other route gets normal JSON.
 app.use("/api/payments", webhookRoutes);
-
+app.get('/health', (req, res) => res.status(200).send('OK'));
 app.use(express.json());
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
