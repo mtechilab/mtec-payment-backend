@@ -2,10 +2,14 @@ import { Router } from "express";
 import express from "express";
 import { verifyMonimeSignature } from "../services/monimeClient.js";
 <<<<<<< HEAD
+<<<<<<< HEAD
 import { finalizeVerifiedPayment, generateMtecReference, expireSubmission } from "../services/paymentPlanService.js";
 =======
 import { finalizeVerifiedPayment, generateMtecReference } from "../services/paymentPlanService.js";
 >>>>>>> 1c6ce85 (add adnin login)
+=======
+import { finalizeVerifiedPayment, generateMtecReference } from "../services/paymentPlanService.js";
+>>>>>>> f13cd76 (Merge remote main)
 import { getSupabase } from "../db/supabaseClient.js";
 
 const router = Router();
@@ -15,6 +19,7 @@ const router = Router();
 router.post("/webhook", express.raw({ type: "application/json" }), async (req, res) => {
   const rawBody = req.body as Buffer;
 
+<<<<<<< HEAD
 <<<<<<< HEAD
   // Concrete check, not a guess: if these two numbers disagree, the bytes
   // we're hashing are provably NOT what Monime sent (truncated, re-encoded,
@@ -27,18 +32,24 @@ router.post("/webhook", express.raw({ type: "application/json" }), async (req, r
     console.warn(`[webhook] ALERT: body length mismatch — received ${rawBody.length} bytes, content-length header said ${declaredLength}`);
   }
 =======
+=======
+>>>>>>> f13cd76 (Merge remote main)
   // TEMPORARY DIAGNOSTIC — uncomment while confirming the real payload
   // shape for payment_code.completed (paymentId / paymentCodeId / amount
   // field paths below are not yet verified against a real completed
   // delivery, only against expired-event deliveries). Comment back out
   // once confirmed — request headers/bodies shouldn't be logged forever.
   // console.log("Webhook headers received:", req.headers);
+<<<<<<< HEAD
 >>>>>>> 1c6ce85 (add adnin login)
+=======
+>>>>>>> f13cd76 (Merge remote main)
 
   const signatureHeaderName = process.env.MONIME_SIGNATURE_HEADER || "monime-signature";
   const signature = req.headers[signatureHeaderName.toLowerCase()] as string | undefined;
   const secret = process.env.MONIME_WEBHOOK_SECRET || "";
 
+<<<<<<< HEAD
 <<<<<<< HEAD
   const signatureCheck = verifyMonimeSignature(rawBody, signature, secret);
   if (!signatureCheck.valid) {
@@ -57,6 +68,10 @@ router.post("/webhook", express.raw({ type: "application/json" }), async (req, r
   if (!verifyMonimeSignature(rawBody, signature, secret)) {
     console.warn("[webhook] signature verification failed — rejecting");
 >>>>>>> 1c6ce85 (add adnin login)
+=======
+  if (!verifyMonimeSignature(rawBody, signature, secret)) {
+    console.warn("[webhook] signature verification failed — rejecting");
+>>>>>>> f13cd76 (Merge remote main)
     return res.status(401).json({ error: "invalid_signature" });
   }
 
@@ -86,6 +101,7 @@ router.post("/webhook", express.raw({ type: "application/json" }), async (req, r
   console.log(`[webhook] received ${eventName} (event ${eventId})`, { paymentId, paymentCodeId, oneTimeSubmissionId });
 
 <<<<<<< HEAD
+<<<<<<< HEAD
   if (eventName === "payment_code.expired") {
     // A one-time code's `reference` is the submission id (set at /initiate,
     // same as the completed path). expireSubmission() is naturally
@@ -108,6 +124,11 @@ router.post("/webhook", express.raw({ type: "application/json" }), async (req, r
     // Includes payment_code.expired and anything else we don't act on —
     // 200 quickly so Monime doesn't keep retrying.
 >>>>>>> 1c6ce85 (add adnin login)
+=======
+  if (eventName !== "payment_code.completed") {
+    // Includes payment_code.expired and anything else we don't act on —
+    // 200 quickly so Monime doesn't keep retrying.
+>>>>>>> f13cd76 (Merge remote main)
     return res.status(200).json({ received: true });
   }
 

@@ -13,6 +13,7 @@ import {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
   cancelSubmission,
 =======
 >>>>>>> 36cdb6a (Initial commit)
@@ -20,6 +21,8 @@ import {
 >>>>>>> 83cdb68 (add update)
 =======
 >>>>>>> 1c6ce85 (add adnin login)
+=======
+>>>>>>> f13cd76 (Merge remote main)
   SubmissionMethod,
 } from "../services/paymentPlanService.js";
 import { createPaymentCode } from "../services/monimeClient.js";
@@ -174,6 +177,7 @@ router.post("/submit-manual", async (req: AuthenticatedRequest, res: Response) =
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 // POST /payments/:reference/cancel — student backed out of an in-progress
 // (still "pending") payment, e.g. tapping Cancel on the Monime USSD screen.
 // Frees up the reserved amount so validateRequestedAmount stops counting
@@ -197,6 +201,8 @@ router.post("/:reference/cancel", async (req: AuthenticatedRequest, res: Respons
 >>>>>>> 83cdb68 (add update)
 =======
 >>>>>>> 1c6ce85 (add adnin login)
+=======
+>>>>>>> f13cd76 (Merge remote main)
 // GET /payments/transactions — full payment history, matches image 1.
 router.get("/transactions", async (req: AuthenticatedRequest, res: Response) => {
   try {

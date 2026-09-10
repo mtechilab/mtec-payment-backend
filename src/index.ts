@@ -1,26 +1,38 @@
 import "dotenv/config";
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 import path from "path";
 import { fileURLToPath } from "url";
 >>>>>>> 1c6ce85 (add adnin login)
+=======
+import path from "path";
+import { fileURLToPath } from "url";
+>>>>>>> f13cd76 (Merge remote main)
 import express from "express";
 import authRoutes from "./routes/authRoutes.js";
 import paymentRoutes from "./routes/paymentRoutes.js";
 import webhookRoutes from "./routes/webhookRoutes.js";
 <<<<<<< HEAD
+<<<<<<< HEAD
 
 =======
+=======
+>>>>>>> f13cd76 (Merge remote main)
 import staffRoutes from "./routes/staffRoutes.js";
 import adminRoutes from "./routes/adminRoutes.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+<<<<<<< HEAD
 >>>>>>> 1c6ce85 (add adnin login)
+=======
+>>>>>>> f13cd76 (Merge remote main)
 const app = express();
 
 // Webhook route needs raw body — registered before express.json() so it
 // alone gets the unparsed buffer; every other route gets normal JSON.
 app.use("/api/payments", webhookRoutes);
+<<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
@@ -36,18 +48,24 @@ app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
   res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
 =======
+=======
+>>>>>>> f13cd76 (Merge remote main)
 
 app.use(express.json());
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
   res.header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Staff-Token");
+<<<<<<< HEAD
 >>>>>>> 1c6ce85 (add adnin login)
+=======
+>>>>>>> f13cd76 (Merge remote main)
   res.header("Access-Control-Allow-Methods", "GET, POST");
   next();
 });
 
 app.use("/auth", authRoutes);
 app.use("/payments", paymentRoutes);
+<<<<<<< HEAD
 <<<<<<< HEAD
 
 <<<<<<< HEAD
@@ -60,6 +78,8 @@ app.get("/health", (_req, res) => res.json({ status: "ok" }));
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
 >>>>>>> 83cdb68 (add update)
 =======
+=======
+>>>>>>> f13cd76 (Merge remote main)
 app.use("/api/staff", staffRoutes);
 app.use("/api/admin", adminRoutes);
 
@@ -80,14 +100,21 @@ app.get("/admin", (_req, res) => {
 });
 
 app.get("/health", (_req, res) => res.json({ status: "ok" }));
+<<<<<<< HEAD
 >>>>>>> 1c6ce85 (add adnin login)
+=======
+>>>>>>> f13cd76 (Merge remote main)
 
 const port = process.env.PORT || 4000;
 app.listen(port, () => {
   console.log(`MTeC Payment Backend listening on port ${port}`);
   console.log(`Webhook endpoint: /api/payments/webhook`);
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
   console.log(`Staff cash-approval page: /staff`);
 >>>>>>> 1c6ce85 (add adnin login)
+=======
+  console.log(`Staff cash-approval page: /staff`);
+>>>>>>> f13cd76 (Merge remote main)
 });

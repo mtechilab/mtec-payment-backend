@@ -21,7 +21,10 @@ export interface RecurrentPaymentCodeResult {
 }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> f13cd76 (Merge remote main)
 /** Creates a one-time Monime Payment Code. Amounts are in whole Leones
  *  here; converted to minor units (x100) before the API call — SLE 100 =
  *  value 10000. Uses Payment Codes (USSD), not Checkout Sessions — this
@@ -33,7 +36,10 @@ export interface RecurrentPaymentCodeResult {
  *  real "reference code cannot be used on Orange Money" rejection during
  *  testing — omitting it avoids locking the code to a network the payer
  *  may not be on. */
+<<<<<<< HEAD
 >>>>>>> 1c6ce85 (add adnin login)
+=======
+>>>>>>> f13cd76 (Merge remote main)
 export async function createPaymentCode(params: {
   amountLeones: number;
   phone?: string;
@@ -44,9 +50,12 @@ export async function createPaymentCode(params: {
   const accessToken = requireEnv("MONIME_ACCESS_TOKEN");
   const spaceId = requireEnv("MONIME_SPACE_ID");
 <<<<<<< HEAD
+<<<<<<< HEAD
   const financialAccountId = requireEnv("MONIME_FINANCIAL_ACCOUNT_ID");
 =======
 >>>>>>> 1c6ce85 (add adnin login)
+=======
+>>>>>>> f13cd76 (Merge remote main)
   const idempotencyKey = crypto.randomUUID();
 
   const body: Record<string, unknown> = {
@@ -57,9 +66,12 @@ export async function createPaymentCode(params: {
     customer: { name: params.customerName },
     reference: params.internalReference,
 <<<<<<< HEAD
+<<<<<<< HEAD
     financialAccountId,
 =======
 >>>>>>> 1c6ce85 (add adnin login)
+=======
+>>>>>>> f13cd76 (Merge remote main)
   };
   if (params.phone) body.authorizedPhoneNumber = params.phone;
 
@@ -85,7 +97,10 @@ export async function createPaymentCode(params: {
 }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> f13cd76 (Merge remote main)
 /** Creates a REUSABLE / RECURRENT Payment Code — one fixed amount per
  *  redemption, intended for the "Pay Monthly" Watu-style flow. A single
  *  recurrent code can be redeemed multiple times over its lifetime; each
@@ -96,7 +111,10 @@ export async function createPaymentCode(params: {
  *  verified against Monime's docs/support — confirm with a real account
  *  test before relying on this in production. A rejected format throws
  *  here rather than silently misbehaving, so it should surface clearly. */
+<<<<<<< HEAD
 >>>>>>> 1c6ce85 (add adnin login)
+=======
+>>>>>>> f13cd76 (Merge remote main)
 export async function createRecurrentPaymentCode(params: {
   amountLeones: number;
   customerName: string;
@@ -108,9 +126,12 @@ export async function createRecurrentPaymentCode(params: {
   const accessToken = requireEnv("MONIME_ACCESS_TOKEN");
   const spaceId = requireEnv("MONIME_SPACE_ID");
 <<<<<<< HEAD
+<<<<<<< HEAD
   const financialAccountId = requireEnv("MONIME_FINANCIAL_ACCOUNT_ID");
 =======
 >>>>>>> 1c6ce85 (add adnin login)
+=======
+>>>>>>> f13cd76 (Merge remote main)
   const idempotencyKey = crypto.randomUUID();
 
   const body: Record<string, unknown> = {
@@ -121,16 +142,22 @@ export async function createRecurrentPaymentCode(params: {
     customer: { name: params.customerName },
     reference: params.internalReference,
 <<<<<<< HEAD
+<<<<<<< HEAD
     financialAccountId,
   };
   if (params.recurrentPaymentTarget) body.recurrentPaymentTarget = params.recurrentPaymentTarget;
 =======
+=======
+>>>>>>> f13cd76 (Merge remote main)
   };
   if (params.recurrentPaymentTarget) body.recurrentPaymentTarget = params.recurrentPaymentTarget;
   // No phone restriction by default, so a parent/guardian can redeem the
   // monthly code too — actual cross-phone redemption still depends on
   // Monime account/payment-code configuration, not just this flag.
+<<<<<<< HEAD
 >>>>>>> 1c6ce85 (add adnin login)
+=======
+>>>>>>> f13cd76 (Merge remote main)
   if (params.phone) body.authorizedPhoneNumber = params.phone;
 
   const response = await fetch(`${MONIME_BASE_URL}/v1/payment-codes`, {
@@ -155,6 +182,7 @@ export async function createRecurrentPaymentCode(params: {
 }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 export type SignatureCheckResult =
   | { valid: true }
   | { valid: false; reason: "missing_secret" | "missing_header" | "malformed_header" | "timestamp_too_old" }
@@ -178,6 +206,8 @@ export function verifyMonimeSignature(rawBody: Buffer, signatureHeader: string |
   if (!secret) return { valid: false, reason: "missing_secret" };
   if (!signatureHeader) return { valid: false, reason: "missing_header" };
 =======
+=======
+>>>>>>> f13cd76 (Merge remote main)
 /**
  * HMAC verification for incoming webhooks. Confirmed against a real
  * captured delivery (not guessed): Monime's `monime-signature` header
@@ -196,7 +226,10 @@ export function verifyMonimeSignature(rawBody: Buffer, signatureHeader: string |
  */
 export function verifyMonimeSignature(rawBody: Buffer, signatureHeader: string | undefined, secret: string): boolean {
   if (!signatureHeader) return false;
+<<<<<<< HEAD
 >>>>>>> 1c6ce85 (add adnin login)
+=======
+>>>>>>> f13cd76 (Merge remote main)
 
   const parts: Record<string, string> = {};
   for (const kv of signatureHeader.split(",")) {
@@ -207,6 +240,7 @@ export function verifyMonimeSignature(rawBody: Buffer, signatureHeader: string |
 
   const timestamp = parts["t"];
   const providedSignature = parts["v1"];
+<<<<<<< HEAD
 <<<<<<< HEAD
   if (!timestamp || !providedSignature) return { valid: false, reason: "malformed_header" };
 
@@ -267,6 +301,8 @@ export function verifyMonimeSignature(rawBody: Buffer, signatureHeader: string |
     candidates: allCandidates,
   };
 =======
+=======
+>>>>>>> f13cd76 (Merge remote main)
   if (!timestamp || !providedSignature) return false;
 
   const timestampSeconds = Number(timestamp);
@@ -282,5 +318,8 @@ export function verifyMonimeSignature(rawBody: Buffer, signatureHeader: string |
   } catch {
     return false; // length mismatch — definitely not a match, not a crash
   }
+<<<<<<< HEAD
 >>>>>>> 1c6ce85 (add adnin login)
+=======
+>>>>>>> f13cd76 (Merge remote main)
 }

@@ -1,6 +1,7 @@
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 import crypto from "crypto";
 
 const MONIME_BASE_URL = "https://api.monime.io";
@@ -209,6 +210,8 @@ export function verifyMonimeSignature(rawBody: Buffer, signatureHeader: string |
 >>>>>>> 83cdb68 (add update)
 =======
 >>>>>>> 1c6ce85 (add adnin login)
+=======
+>>>>>>> f13cd76 (Merge remote main)
 import { getSupabase } from "../db/supabaseClient.js";
 import { createRecurrentPaymentCode } from "./monimeClient.js";
 
@@ -483,6 +486,7 @@ export async function rejectSubmission(submissionId: string, reason: string) {
 }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 /** Called from the webhook's payment_code.expired handler. Only touches a
  *  submission that's still "pending" — if it's already verified (a
  *  completed event arrived first or raced ahead of the expiry event) or
@@ -499,6 +503,8 @@ export async function expireSubmission(submissionId: string) {
     .eq("status", "pending");
   if (error) throw new Error(`expireSubmission failed: ${error.message}`);
 =======
+=======
+>>>>>>> f13cd76 (Merge remote main)
 /** GET (staff) list of cash submissions awaiting approval — students land
  *  here after submit-manual sets status to "under_review". Joins in the
  *  student's name/ID so staff aren't approving a bare reference number
@@ -513,7 +519,10 @@ export async function getPendingCashSubmissions() {
     .order("created_at", { ascending: true });
   if (error) throw new Error(`getPendingCashSubmissions failed: ${error.message}`);
   return data;
+<<<<<<< HEAD
 >>>>>>> 1c6ce85 (add adnin login)
+=======
+>>>>>>> f13cd76 (Merge remote main)
 }
 
 /** POST /payments/initiate — creates the submission; for Monime, the
@@ -581,11 +590,14 @@ export async function attachProviderReference(studentRowId: string, mtecReferenc
 }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 
 
 
 =======
 >>>>>>> 1c6ce85 (add adnin login)
+=======
+>>>>>>> f13cd76 (Merge remote main)
 // ---------------------------------------------------------------------
 // Recurrent (Watu-style monthly) payment code
 // ---------------------------------------------------------------------
@@ -732,8 +744,11 @@ export async function getTransactionsForStudent(studentRowId: string) {
 }
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 >>>>>>> 36cdb6a (Initial commit)
 =======
 >>>>>>> 83cdb68 (add update)
 =======
 >>>>>>> 1c6ce85 (add adnin login)
+=======
+>>>>>>> f13cd76 (Merge remote main)

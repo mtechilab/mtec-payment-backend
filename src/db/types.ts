@@ -121,7 +121,10 @@ export interface Database {
         Relationships: [];
       };
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
+=======
+>>>>>>> f13cd76 (Merge remote main)
       admin_accounts: {
         Row: { id: string; username: string; password_hash: string; full_name: string; role: string; created_at: string };
         Insert: Partial<Database["public"]["Tables"]["admin_accounts"]["Row"]>;
@@ -146,7 +149,10 @@ export interface Database {
         Update: Partial<Database["public"]["Tables"]["result_batches"]["Row"]>;
         Relationships: [];
       };
+<<<<<<< HEAD
 >>>>>>> 1c6ce85 (add adnin login)
+=======
+>>>>>>> f13cd76 (Merge remote main)
       processed_webhook_events: {
         Row: { event_id: string; processed_at: string };
         Insert: Partial<Database["public"]["Tables"]["processed_webhook_events"]["Row"]>;
@@ -160,6 +166,7 @@ export interface Database {
 <<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
       }
 =======
 }
@@ -170,3 +177,6 @@ export interface Database {
 =======
       }
 >>>>>>> 1c6ce85 (add adnin login)
+=======
+      }
+>>>>>>> f13cd76 (Merge remote main)
