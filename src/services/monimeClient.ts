@@ -20,6 +20,20 @@ export interface RecurrentPaymentCodeResult {
   expireTime: string;
 }
 
+<<<<<<< HEAD
+=======
+/** Creates a one-time Monime Payment Code. Amounts are in whole Leones
+ *  here; converted to minor units (x100) before the API call — SLE 100 =
+ *  value 10000. Uses Payment Codes (USSD), not Checkout Sessions — this
+ *  account's Checkout Session webhooks don't fire; only payment_code.*
+ *  events do.
+ *
+ *  `phone` is optional: only send authorizedPhoneNumber when explicitly
+ *  supplied. An incorrect network/phone match here is what produced a
+ *  real "reference code cannot be used on Orange Money" rejection during
+ *  testing — omitting it avoids locking the code to a network the payer
+ *  may not be on. */
+>>>>>>> 1c6ce85 (add adnin login)
 export async function createPaymentCode(params: {
   amountLeones: number;
   phone?: string;
@@ -29,7 +43,10 @@ export async function createPaymentCode(params: {
 }): Promise<PaymentCodeResult> {
   const accessToken = requireEnv("MONIME_ACCESS_TOKEN");
   const spaceId = requireEnv("MONIME_SPACE_ID");
+<<<<<<< HEAD
   const financialAccountId = requireEnv("MONIME_FINANCIAL_ACCOUNT_ID");
+=======
+>>>>>>> 1c6ce85 (add adnin login)
   const idempotencyKey = crypto.randomUUID();
 
   const body: Record<string, unknown> = {
@@ -39,7 +56,10 @@ export async function createPaymentCode(params: {
     duration: params.duration || "30m",
     customer: { name: params.customerName },
     reference: params.internalReference,
+<<<<<<< HEAD
     financialAccountId,
+=======
+>>>>>>> 1c6ce85 (add adnin login)
   };
   if (params.phone) body.authorizedPhoneNumber = params.phone;
 
@@ -64,6 +84,19 @@ export async function createPaymentCode(params: {
   return { paymentCodeId: json.result.id, ussdCode: json.result.ussdCode, expireTime: json.result.expireTime };
 }
 
+<<<<<<< HEAD
+=======
+/** Creates a REUSABLE / RECURRENT Payment Code — one fixed amount per
+ *  redemption, intended for the "Pay Monthly" Watu-style flow. A single
+ *  recurrent code can be redeemed multiple times over its lifetime; each
+ *  redemption produces its own payment_code.completed webhook event.
+ *
+ *  UNCONFIRMED: the exact accepted `duration` syntax for recurrent codes
+ *  (e.g. "4mo") and the `recurrentPaymentTarget` shape have not been
+ *  verified against Monime's docs/support — confirm with a real account
+ *  test before relying on this in production. A rejected format throws
+ *  here rather than silently misbehaving, so it should surface clearly. */
+>>>>>>> 1c6ce85 (add adnin login)
 export async function createRecurrentPaymentCode(params: {
   amountLeones: number;
   customerName: string;
@@ -74,7 +107,10 @@ export async function createRecurrentPaymentCode(params: {
 }): Promise<RecurrentPaymentCodeResult> {
   const accessToken = requireEnv("MONIME_ACCESS_TOKEN");
   const spaceId = requireEnv("MONIME_SPACE_ID");
+<<<<<<< HEAD
   const financialAccountId = requireEnv("MONIME_FINANCIAL_ACCOUNT_ID");
+=======
+>>>>>>> 1c6ce85 (add adnin login)
   const idempotencyKey = crypto.randomUUID();
 
   const body: Record<string, unknown> = {
@@ -84,9 +120,17 @@ export async function createRecurrentPaymentCode(params: {
     duration: params.duration,
     customer: { name: params.customerName },
     reference: params.internalReference,
+<<<<<<< HEAD
     financialAccountId,
   };
   if (params.recurrentPaymentTarget) body.recurrentPaymentTarget = params.recurrentPaymentTarget;
+=======
+  };
+  if (params.recurrentPaymentTarget) body.recurrentPaymentTarget = params.recurrentPaymentTarget;
+  // No phone restriction by default, so a parent/guardian can redeem the
+  // monthly code too — actual cross-phone redemption still depends on
+  // Monime account/payment-code configuration, not just this flag.
+>>>>>>> 1c6ce85 (add adnin login)
   if (params.phone) body.authorizedPhoneNumber = params.phone;
 
   const response = await fetch(`${MONIME_BASE_URL}/v1/payment-codes`, {
@@ -110,6 +154,7 @@ export async function createRecurrentPaymentCode(params: {
   return { paymentCodeId: json.result.id, ussdCode: json.result.ussdCode, expireTime: json.result.expireTime };
 }
 
+<<<<<<< HEAD
 export type SignatureCheckResult =
   | { valid: true }
   | { valid: false; reason: "missing_secret" | "missing_header" | "malformed_header" | "timestamp_too_old" }
@@ -132,6 +177,26 @@ export type SignatureCheckResult =
 export function verifyMonimeSignature(rawBody: Buffer, signatureHeader: string | undefined, secret: string): SignatureCheckResult {
   if (!secret) return { valid: false, reason: "missing_secret" };
   if (!signatureHeader) return { valid: false, reason: "missing_header" };
+=======
+/**
+ * HMAC verification for incoming webhooks. Confirmed against a real
+ * captured delivery (not guessed): Monime's `monime-signature` header
+ * uses the same t=<timestamp>,v1=<signature> pattern as Stripe, Mux,
+ * Monite, and Zoho — but unlike those (hex), Monime's v1 value is
+ * base64-encoded, confirmed by the '+', '/', and '=' padding characters
+ * in a real captured signature, which are not valid hex.
+ *
+ * Signed payload construction (`${timestamp}.${rawBody}`, dot-joined)
+ * matches the near-universal convention across every provider using this
+ * header shape — this is the standard construction, not a guess specific
+ * to Monime.
+ *
+ * Also rejects timestamps older than 5 minutes, standard replay-attack
+ * protection used by every provider in this family (Stripe, Zoho, etc).
+ */
+export function verifyMonimeSignature(rawBody: Buffer, signatureHeader: string | undefined, secret: string): boolean {
+  if (!signatureHeader) return false;
+>>>>>>> 1c6ce85 (add adnin login)
 
   const parts: Record<string, string> = {};
   for (const kv of signatureHeader.split(",")) {
@@ -142,6 +207,7 @@ export function verifyMonimeSignature(rawBody: Buffer, signatureHeader: string |
 
   const timestamp = parts["t"];
   const providedSignature = parts["v1"];
+<<<<<<< HEAD
   if (!timestamp || !providedSignature) return { valid: false, reason: "malformed_header" };
 
   const timestampSeconds = Number(timestamp);
@@ -200,4 +266,21 @@ export function verifyMonimeSignature(rawBody: Buffer, signatureHeader: string |
     provided: providedSignature,
     candidates: allCandidates,
   };
+=======
+  if (!timestamp || !providedSignature) return false;
+
+  const timestampSeconds = Number(timestamp);
+  if (!Number.isFinite(timestampSeconds)) return false;
+  const ageSeconds = Math.abs(Date.now() / 1000 - timestampSeconds);
+  if (ageSeconds > 300) return false; // reject anything older than 5 minutes
+
+  const signedPayload = Buffer.concat([Buffer.from(`${timestamp}.`, "utf8"), rawBody]);
+  const expected = crypto.createHmac("sha256", secret).update(signedPayload).digest("base64");
+
+  try {
+    return crypto.timingSafeEqual(Buffer.from(providedSignature), Buffer.from(expected));
+  } catch {
+    return false; // length mismatch — definitely not a match, not a crash
+  }
+>>>>>>> 1c6ce85 (add adnin login)
 }

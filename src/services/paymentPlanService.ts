@@ -1,5 +1,6 @@
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 import crypto from "crypto";
 
 const MONIME_BASE_URL = "https://api.monime.io";
@@ -206,6 +207,8 @@ export function verifyMonimeSignature(rawBody: Buffer, signatureHeader: string |
 =======
 =======
 >>>>>>> 83cdb68 (add update)
+=======
+>>>>>>> 1c6ce85 (add adnin login)
 import { getSupabase } from "../db/supabaseClient.js";
 import { createRecurrentPaymentCode } from "./monimeClient.js";
 
@@ -479,6 +482,7 @@ export async function rejectSubmission(submissionId: string, reason: string) {
   await supabase.from("payment_submissions").update({ status: "rejected", rejection_reason: reason }).eq("id", submissionId);
 }
 
+<<<<<<< HEAD
 /** Called from the webhook's payment_code.expired handler. Only touches a
  *  submission that's still "pending" — if it's already verified (a
  *  completed event arrived first or raced ahead of the expiry event) or
@@ -494,6 +498,22 @@ export async function expireSubmission(submissionId: string) {
     .eq("id", submissionId)
     .eq("status", "pending");
   if (error) throw new Error(`expireSubmission failed: ${error.message}`);
+=======
+/** GET (staff) list of cash submissions awaiting approval — students land
+ *  here after submit-manual sets status to "under_review". Joins in the
+ *  student's name/ID so staff aren't approving a bare reference number
+ *  blind. */
+export async function getPendingCashSubmissions() {
+  const supabase = getSupabase();
+  const { data, error } = await supabase
+    .from("payment_submissions")
+    .select("id, mtec_reference, amount, provider_reference, created_at, students(student_id, full_name)")
+    .eq("method", "cash_deposit")
+    .eq("status", "under_review")
+    .order("created_at", { ascending: true });
+  if (error) throw new Error(`getPendingCashSubmissions failed: ${error.message}`);
+  return data;
+>>>>>>> 1c6ce85 (add adnin login)
 }
 
 /** POST /payments/initiate — creates the submission; for Monime, the
@@ -560,9 +580,12 @@ export async function attachProviderReference(studentRowId: string, mtecReferenc
   return { success: true as const, submissionId: submission.id as string };
 }
 
+<<<<<<< HEAD
 
 
 
+=======
+>>>>>>> 1c6ce85 (add adnin login)
 // ---------------------------------------------------------------------
 // Recurrent (Watu-style monthly) payment code
 // ---------------------------------------------------------------------
@@ -708,6 +731,9 @@ export async function getTransactionsForStudent(studentRowId: string) {
   });
 }
 <<<<<<< HEAD
+<<<<<<< HEAD
 >>>>>>> 36cdb6a (Initial commit)
 =======
 >>>>>>> 83cdb68 (add update)
+=======
+>>>>>>> 1c6ce85 (add adnin login)

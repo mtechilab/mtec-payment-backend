@@ -208,6 +208,7 @@ create table payment_plans (
   status text not null default 'active' check (status in ('active','completed','cancelled')),
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
   created_at timestamptz not null default now()
 =======
 =======
@@ -225,6 +226,9 @@ create table payment_plans (
 >>>>>>> 36cdb6a (Initial commit)
 =======
 >>>>>>> 83cdb68 (add update)
+=======
+  created_at timestamptz not null default now()
+>>>>>>> 1c6ce85 (add adnin login)
 );
 create index idx_payment_plans_student on payment_plans (student_row_id);
 
@@ -264,6 +268,7 @@ create table payment_submissions (
   rejection_reason text,
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
   created_at timestamptz not null default now()
 =======
 =======
@@ -279,6 +284,9 @@ create table payment_submissions (
 >>>>>>> 36cdb6a (Initial commit)
 =======
 >>>>>>> 83cdb68 (add update)
+=======
+  created_at timestamptz not null default now()
+>>>>>>> 1c6ce85 (add adnin login)
 );
 create index idx_payment_submissions_plan on payment_submissions (payment_plan_id);
 create index idx_payment_submissions_student on payment_submissions (student_row_id);
@@ -290,6 +298,7 @@ create unique index idx_unique_provider_reference
   on payment_submissions (method, provider_reference)
   where provider_reference is not null;
 
+<<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
 =======
@@ -305,6 +314,8 @@ create unique index idx_unique_monime_payment_id
 >>>>>>> 36cdb6a (Initial commit)
 =======
 >>>>>>> 83cdb68 (add update)
+=======
+>>>>>>> 1c6ce85 (add adnin login)
 -- ---- Academics -------------------------------------------------
 
 create table courses (
