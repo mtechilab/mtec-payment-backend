@@ -1,0 +1,203 @@
+// Minimal hand-written Database type — covers only the tables this
+// backend actually touches, matching supabase/schema.sql column-for-
+// column. Normally generated via `supabase gen types typescript`, but
+// written by hand here since there's no live Supabase project to
+// generate against yet. If columns drift from schema.sql, regenerate
+// this properly once the project exists.
+//
+// Shape (Row/Insert/Update/Relationships per table, Tables/Views/
+// Functions per schema) matches @supabase/postgrest-js's GenericSchema —
+// confirmed against the installed package's own type definitions rather
+// than assumed, since this version requires Relationships explicitly.
+
+export interface Database {
+  public: {
+    Tables: {
+      programmes: {
+        Row: { id: string; name: string; department: string; duration_years: number; duration_label: string };
+        Insert: Partial<Database["public"]["Tables"]["programmes"]["Row"]>;
+        Update: Partial<Database["public"]["Tables"]["programmes"]["Row"]>;
+        Relationships: [];
+      };
+      payment_plans: {
+        Row: {
+          id: string;
+          student_row_id: string;
+          programme_id: string;
+          label: string;
+          frequency: string;
+          period_amount: number;
+          total_amount: number;
+          plan_start_date: string;
+          plan_end_date: string;
+          status: string;
+          created_at: string;
+          programmes?: { name: string; duration_years: number } | null;
+          monime_recurrent_code_id: string | null;
+          monime_recurrent_ussd_code: string | null;
+          monime_recurrent_expire_time: string | null;
+          monime_recurrent_amount: number | null;
+        };
+        Insert: Partial<Database["public"]["Tables"]["payment_plans"]["Row"]>;
+        Update: Partial<Database["public"]["Tables"]["payment_plans"]["Row"]>;
+        Relationships: [];
+      };
+      payment_periods: {
+        Row: {
+          id: string;
+          payment_plan_id: string;
+          period_label: string;
+          period_index: number;
+          due_date: string;
+          amount_due: number;
+          amount_paid: number;
+          status: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["payment_periods"]["Row"]>;
+        Update: Partial<Database["public"]["Tables"]["payment_periods"]["Row"]>;
+        Relationships: [];
+      };
+      payment_submissions: {
+        Row: {
+          id: string;
+          mtec_reference: string;
+          payment_plan_id: string;
+          payment_period_id: string | null;
+          student_row_id: string;
+          amount: number;
+          method: string;
+          provider_reference: string | null;
+          status: string;
+          verified_by: string | null;
+          verified_at: string | null;
+          rejection_reason: string | null;
+          created_at: string;
+          monime_payment_code_id: string | null;
+          monime_payment_id: string | null;
+          monime_transaction_reference: string | null;
+        };
+        Insert: Partial<Database["public"]["Tables"]["payment_submissions"]["Row"]>;
+        Update: Partial<Database["public"]["Tables"]["payment_submissions"]["Row"]>;
+        Relationships: [];
+      };
+      students: {
+        Row: {
+          id: string;
+          student_id: string;
+          student_pin: string;
+          password_hash: string | null;
+          first_login_complete: boolean;
+          application_id: string;
+          full_name: string;
+          phone: string;
+          email: string;
+          programme: string;
+          academic_year: string;
+          level: string;
+          status: string;
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["students"]["Row"]>;
+        Update: Partial<Database["public"]["Tables"]["students"]["Row"]>;
+        Relationships: [];
+      };
+      receipts: {
+        Row: {
+          id: string;
+          receipt_number: string;
+          student_row_id: string;
+          student_id_number: string;
+          student_name: string;
+          programme: string;
+          amount: number;
+          method: string;
+          date: string;
+          received_by: string;
+          previous_balance: number;
+          new_balance: number;
+        };
+        Insert: Partial<Database["public"]["Tables"]["receipts"]["Row"]>;
+        Update: Partial<Database["public"]["Tables"]["receipts"]["Row"]>;
+        Relationships: [];
+      };
+      admin_accounts: {
+        Row: { id: string; username: string; password_hash: string; full_name: string; role: string; created_at: string };
+        Insert: Partial<Database["public"]["Tables"]["admin_accounts"]["Row"]>;
+        Update: Partial<Database["public"]["Tables"]["admin_accounts"]["Row"]>;
+        Relationships: [];
+      };
+      courses: {
+        Row: { id: string; code: string; name: string; programme: string; level: string; semester: string; credit_units: number };
+        Insert: Partial<Database["public"]["Tables"]["courses"]["Row"]>;
+        Update: Partial<Database["public"]["Tables"]["courses"]["Row"]>;
+        Relationships: [];
+      };
+      marks: {
+        Row: { id: string; assessment_item_id: string; class_id: string; student_row_id: string; score: number; classes?: { courses?: { code: string; name: string } | null } | null; assessment_items?: { name: string; max_score: number; weight: number } | null };
+        Insert: Partial<Database["public"]["Tables"]["marks"]["Row"]>;
+        Update: Partial<Database["public"]["Tables"]["marks"]["Row"]>;
+        Relationships: [];
+      };
+      result_batches: {
+        Row: { class_id: string; status: string; sent_back_reason: string | null; submitted_at: string | null; published_at: string | null };
+        Insert: Partial<Database["public"]["Tables"]["result_batches"]["Row"]>;
+        Update: Partial<Database["public"]["Tables"]["result_batches"]["Row"]>;
+        Relationships: [];
+      };
+      classes: {
+        Row: { id: string; course_id: string; instructor_name: string; academic_year: string; student_ids: string[]; courses?: { code: string; name: string; credit_units: number; semester: string } | null };
+        Insert: Partial<Database["public"]["Tables"]["classes"]["Row"]>;
+        Update: Partial<Database["public"]["Tables"]["classes"]["Row"]>;
+        Relationships: [];
+      };
+      timetable_slots: {
+        Row: { id: string; class_id: string; day_of_week: string; start_time: string; end_time: string; room: string; classes?: { courses?: { code: string; name: string } | null } | null };
+        Insert: Partial<Database["public"]["Tables"]["timetable_slots"]["Row"]>;
+        Update: Partial<Database["public"]["Tables"]["timetable_slots"]["Row"]>;
+        Relationships: [];
+      };
+      attendance_records: {
+        Row: { id: string; class_id: string; student_row_id: string; date: string; mark: string; classes?: { courses?: { code: string; name: string } | null } | null };
+        Insert: Partial<Database["public"]["Tables"]["attendance_records"]["Row"]>;
+        Update: Partial<Database["public"]["Tables"]["attendance_records"]["Row"]>;
+        Relationships: [];
+      };
+      assessment_items: {
+        Row: { id: string; class_id: string; name: string; max_score: number; weight: number };
+        Insert: Partial<Database["public"]["Tables"]["assessment_items"]["Row"]>;
+        Update: Partial<Database["public"]["Tables"]["assessment_items"]["Row"]>;
+        Relationships: [];
+      };
+      applications: {
+        Row: { id: string; application_number: string | null; pin_id: string; status: string; full_name: string };
+        Insert: Partial<Database["public"]["Tables"]["applications"]["Row"]>;
+        Update: Partial<Database["public"]["Tables"]["applications"]["Row"]>;
+        Relationships: [];
+      };
+      offer_letters: {
+        Row: {
+          id: string; application_id: string; student_name: string; application_number: string;
+          programme: string; academic_year: string; admission_conditions: string; fees_amount: number;
+          reporting_date: string; authorized_signatory: string; generated_at: string; acceptance_deadline: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["offer_letters"]["Row"]>;
+        Update: Partial<Database["public"]["Tables"]["offer_letters"]["Row"]>;
+        Relationships: [];
+      };
+      acceptance_letters: {
+        Row: { id: string; student_row_id: string; offer_letter_id: string; student_id_number: string; generated_at: string };
+        Insert: Partial<Database["public"]["Tables"]["acceptance_letters"]["Row"]>;
+        Update: Partial<Database["public"]["Tables"]["acceptance_letters"]["Row"]>;
+        Relationships: [];
+      };
+      processed_webhook_events: {
+        Row: { event_id: string; processed_at: string };
+        Insert: Partial<Database["public"]["Tables"]["processed_webhook_events"]["Row"]>;
+        Update: Partial<Database["public"]["Tables"]["processed_webhook_events"]["Row"]>;
+        Relationships: [];
+      };
+    };
+    Views: Record<string, never>;
+    Functions: Record<string, never>;
+  };
+}

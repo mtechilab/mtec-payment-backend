@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>MTeC — Cash Payment Approval</title>
+<style>
+  body { font-family: -apple-system, Roboto, Arial, sans-serif; background: #0d0d0d; color: #eee; margin: 0; padding: 16px; }
+  h1 { font-size: 20px; color: #e8b32c; margin-bottom: 4px; }
+  .sub { color: #999; font-size: 13px; margin-bottom: 20px; }
+  input, button { font-size: 16px; padding: 10px; border-radius: 8px; border: 1px solid #333; }
+  input { width: 100%; box-sizing: border-box; background: #1a1a1a; color: #eee; margin-bottom: 10px; }
+  button { background: #e8b32c; color: #000; font-weight: bold; border: none; cursor: pointer; }
+  button.secondary { background: #333; color: #eee; }
+  button.reject { background: #7a2020; color: #fff; }
+  .card { background: #1a1a1a; border-radius: 12px; padding: 14px; margin-bottom: 12px; border: 1px solid #2a2a2a; }
+  .card .name { font-weight: bold; }
+  .card .meta { color: #999; font-size: 13px; margin: 4px 0 10px; }
+  .row { display: flex; gap: 8px; }
+  .row button { flex: 1; }
+  #keyGate { max-width: 400px; margin: 60px auto; text-align: center; }
+  #status { font-size: 13px; color: #999; margin-top: 8px; }
+  #list.hidden, #keyGate.hidden { display: none; }
+</style>
+</head>
+<body>
+
+<div id="keyGate">
+  <h1>MTeC Staff</h1>
+  <div class="sub">Enter the staff key to view pending cash payments.</div>
+  <input id="staffKey" type="password" placeholder="Staff key" />
+  <button onclick="unlock()">Unlock</button>
+  <div id="status"></div>
+</div>
+
+<div id="list" class="hidden">
+  <h1>Cash Payments Awaiting Approval</h1>
+  <div class="sub">Reusable across sessions on this device only — the key stays in this browser tab and is never saved anywhere.</div>
+  <div id="items"></div>
+  <button class="secondary" onclick="load()" style="width:100%; margin-top: 10px;">Refresh</button>
+</div>
+
+<script>
+  let staffKey = "";
+  const API = ""; // same origin as this page
+
+  function unlock() {
+    staffKey = document.getElementById("staffKey").value.trim();
+    if (!staffKey) return;
+    load();
+  }
+
+  async function load() {
+    const status = document.getElementById("status");
+    status.textContent = "Loading...";
+    try {
+      const res = await fetch(API + "/api/staff/cash-submissions", {
+        headers: { "X-Staff-Token": staffKey }
+      });
+      if (res.status === 401) {
+        status.textContent = "Invalid staff key.";
+        return;
+      }
+      if (!res.ok) {
+        status.textContent = "Error loading submissions.";
+        return;
+      }
+      const data = await res.json();
+      document.getElementById("keyGate").classList.add("hidden");
+      document.getElementById("list").classList.remove("hidden");
+      renderItems(data.submissions || []);
+    } catch (e) {
+      status.textContent = "Could not reach the server.";
+    }
+  }
+
+  function renderItems(items) {
+    const container = document.getElementById("items");
+    if (items.length === 0) {
+      container.innerHTML = '<div class="sub">Nothing waiting right now.</div>';
+      return;
+    }
+    container.innerHTML = items.map(function (item) {
+      const student = item.students || {};
+      return (
+        '<div class="card">' +
+          '<div class="name">' + (student.full_name || "Unknown student") + ' — ' + (student.student_id || "") + '</div>' +
+          '<div class="meta">Ref: ' + item.mtec_reference + ' &middot; NLe ' + item.amount +
+            ' &middot; Provider ref: ' + (item.provider_reference || "—") + '</div>' +
+          '<div class="row">' +
+            '<button onclick="approve(\'' + item.id + '\')">Approve</button>' +
+            '<button class="reject" onclick="reject(\'' + item.id + '\')">Reject</button>' +
+          '</div>' +
+        '</div>'
+      );
+    }).join("");
+  }
+
+  async function approve(id) {
+    const staffName = prompt("Your name (for the record):");
+    if (!staffName) return;
+    const res = await fetch(API + "/api/staff/cash-submissions/" + id + "/approve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Staff-Token": staffKey },
+      body: JSON.stringify({ staffName })
+    });
+    if (res.ok) { load(); } else { alert("Could not approve — try again."); }
+  }
+
+  async function reject(id) {
+    const reason = prompt("Reason for rejecting:");
+    if (!reason) return;
+    const res = await fetch(API + "/api/staff/cash-submissions/" + id + "/reject", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Staff-Token": staffKey },
+      body: JSON.stringify({ reason })
+    });
+    if (res.ok) { load(); } else { alert("Could not reject — try again."); }
+  }
+</script>
+
+</body>
+</html>

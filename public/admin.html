@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>MTeC — Admin Dashboard</title>
+<style>
+  :root {
+    --bg: #0D0D0F; --surface: #18181B; --surface-alt: #222226;
+    --gold: #D4A017; --gold-dark: #B8860B;
+    --text: #FFFFFF; --text-dim: #A0A0A6; --border: #2A2A2E;
+    --success: #2ECC71; --warning: #F5A623; --danger: #E74C3C;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, Roboto, Arial, sans-serif; background: var(--bg); color: var(--text); }
+  .hidden { display: none !important; }
+
+  /* ---- Login ---- */
+  #loginScreen { max-width: 380px; margin: 60px auto; padding: 24px; }
+  #loginScreen h1 { color: var(--gold); font-size: 22px; margin-bottom: 2px; }
+  #loginScreen .sub { color: var(--text-dim); font-size: 13px; margin-bottom: 24px; }
+  input { width: 100%; padding: 12px; margin-bottom: 12px; border-radius: 8px; border: 1px solid var(--border);
+          background: var(--surface); color: var(--text); font-size: 15px; }
+  button { padding: 12px 20px; border-radius: 8px; border: none; font-size: 15px; font-weight: bold; cursor: pointer; }
+  .btn-gold { background: var(--gold); color: #1a1200; width: 100%; }
+  .btn-link { background: none; color: var(--gold); text-decoration: underline; font-weight: normal; font-size: 13px; }
+  #loginError, #setupError { color: var(--danger); font-size: 13px; margin-top: 8px; min-height: 16px; }
+
+  /* ---- Layout ---- */
+  #app { display: flex; min-height: 100vh; }
+  #sidebar { width: 220px; background: var(--surface); border-right: 1px solid var(--border); padding: 16px 0; flex-shrink: 0; }
+  #sidebar .brand { display: flex; align-items: center; gap: 8px; padding: 0 16px 16px; color: var(--gold); font-weight: bold; font-size: 18px; border-bottom: 1px solid var(--border); margin-bottom: 8px; }
+  .navitem { display: flex; align-items: center; gap: 10px; padding: 11px 16px; color: var(--text-dim); font-size: 14px; cursor: pointer; }
+  .navitem.active { background: var(--gold); color: #1a1200; font-weight: bold; }
+  .navitem.disabled { opacity: 0.4; cursor: default; }
+  #main { flex: 1; padding: 20px; overflow-x: hidden; }
+  #topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+  #topbar .title { font-size: 20px; font-weight: bold; }
+  #topbar .who { color: var(--text-dim); font-size: 13px; }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+  .card .icon { width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 16px; margin-bottom: 10px; background: var(--gold); color: #1a1200; }
+  .card .value { font-size: 24px; font-weight: bold; }
+  .card .label { color: var(--text-dim); font-size: 12px; }
+
+  .panels { display: grid; grid-template-columns: 1.3fr 1fr; gap: 12px; }
+  @media (max-width: 720px) { .panels { grid-template-columns: 1fr; } #sidebar { width: 64px; } #sidebar .navitem span.label { display: none; } #sidebar .brand span.label { display: none; } }
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-bottom: 12px; }
+  .panel h3 { margin-top: 0; font-size: 15px; display: flex; justify-content: space-between; align-items: center; }
+  .panel h3 a { color: var(--gold); font-size: 12px; font-weight: normal; text-decoration: none; }
+
+  #barChart { display: flex; align-items: flex-end; gap: 14px; height: 140px; margin-top: 16px; }
+  .bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; }
+  .bar { width: 100%; border-radius: 4px 4px 0 0; }
+  .bar-label { color: var(--text-dim); font-size: 12px; margin-top: 6px; }
+
+  .activity { padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .activity:last-child { border-bottom: none; }
+  .activity .msg { color: var(--text); }
+  .activity .time { color: var(--text-dim); font-size: 11px; }
+
+  .list-row { display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .list-row:last-child { border-bottom: none; }
+  .list-row .main { font-weight: bold; }
+  .list-row .sub { color: var(--text-dim); font-size: 11px; margin-top: 2px; }
+  .pill { padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: bold; white-space: nowrap; }
+  .pill-submitted, .pill-under_review { background: rgba(245,166,35,0.2); color: var(--warning); }
+  .pill-approved, .pill-verified, .pill-successful { background: rgba(46,204,113,0.2); color: var(--success); }
+  .pill-rejected, .pill-failed { background: rgba(231,76,60,0.2); color: var(--danger); }
+  .pill-info_required, .pill-pending { background: rgba(160,160,166,0.2); color: var(--text-dim); }
+
+  .comingsoon { color: var(--text-dim); font-size: 13px; padding: 40px; text-align: center; }
+</style>
+</head>
+<body>
+
+<!-- ================= LOGIN ================= -->
+<div id="loginScreen">
+  <h1>🛡️ MTeC Admin</h1>
+  <div class="sub">Sign in to access the administration dashboard</div>
+  <input id="loginUsername" placeholder="Username" autocomplete="username" />
+  <input id="loginPassword" type="password" placeholder="Password" autocomplete="current-password" />
+  <button class="btn-gold" onclick="login()">Log In</button>
+  <div id="loginError"></div>
+  <div style="text-align:center; margin-top:14px;">
+    <button class="btn-link" onclick="showSetup()">First time? Set up the admin account</button>
+  </div>
+
+  <div id="setupBox" class="hidden" style="margin-top:20px; border-top:1px solid var(--border); padding-top:16px;">
+    <div class="sub">Creates the one and only admin account. This only works before any admin account exists.</div>
+    <input id="setupFullName" placeholder="Full name" />
+    <input id="setupUsername" placeholder="Choose a username" />
+    <input id="setupPassword" type="password" placeholder="Choose a password (min 8 characters)" />
+    <button class="btn-gold" onclick="setupAdmin()">Create Admin Account</button>
+    <div id="setupError"></div>
+  </div>
+</div>
+
+<!-- ================= DASHBOARD ================= -->
+<div id="app" class="hidden">
+  <div id="sidebar">
+    <div class="brand">🛡️ <span class="label">MTeC</span></div>
+    <div class="navitem active"><span>📊</span><span class="label">Dashboard</span></div>
+    <div class="navitem disabled" title="Coming soon — Phase 2"><span>📄</span><span class="label">Admissions</span></div>
+    <div class="navitem disabled" title="Coming soon"><span>👥</span><span class="label">Students</span></div>
+    <div class="navitem disabled" title="Coming soon — Phase 2"><span>💵</span><span class="label">Finance</span></div>
+    <div class="navitem disabled" title="Coming soon — Phase 2"><span>📚</span><span class="label">Academics</span></div>
+    <div class="navitem disabled" title="Coming soon"><span>📈</span><span class="label">Reports</span></div>
+    <div class="navitem disabled" title="Coming soon"><span>⚙️</span><span class="label">Settings</span></div>
+    <div class="navitem" onclick="logout()"><span>🚪</span><span class="label">Logout</span></div>
+  </div>
+
+  <div id="main">
+    <div id="topbar">
+      <div>
+        <div class="title">Dashboard</div>
+        <div class="who">Welcome back<span id="whoName"></span> — here's what's happening at MTeC.</div>
+      </div>
+    </div>
+
+    <div class="cards">
+      <div class="card">
+        <div class="icon">👥</div>
+        <div class="value" id="statStudents">—</div>
+        <div class="label">Total Students</div>
+      </div>
+      <div class="card">
+        <div class="icon">📚</div>
+        <div class="value" id="statCourses">—</div>
+        <div class="label">Total Courses</div>
+      </div>
+      <div class="card">
+        <div class="icon">📝</div>
+        <div class="value" id="statGrades">—</div>
+        <div class="label">Total Grade Entries</div>
+      </div>
+      <div class="card">
+        <div class="icon">💰</div>
+        <div class="value" id="statPayments">—</div>
+        <div class="label">Total Payments Collected</div>
+      </div>
+      <div class="card">
+        <div class="icon">📋</div>
+        <div class="value" id="statPendingApplications">—</div>
+        <div class="label">Pending Applications</div>
+      </div>
+      <div class="card">
+        <div class="icon">🪙</div>
+        <div class="value" id="statOutstandingFees">—</div>
+        <div class="label">Outstanding Fees</div>
+      </div>
+    </div>
+
+    <div class="panels">
+      <div class="panel">
+        <h3>Grade Distribution</h3>
+        <div id="barChart"></div>
+      </div>
+      <div class="panel">
+        <h3>Recent Activity</h3>
+        <div id="activityList"></div>
+      </div>
+    </div>
+
+    <div class="panels">
+      <div class="panel">
+        <h3>Recent Applications <a href="#" onclick="return false;">View all →</a></h3>
+        <div id="applicationsList"></div>
+      </div>
+      <div class="panel">
+        <h3>Recent Payments <a href="#" onclick="return false;">View all →</a></h3>
+        <div id="paymentsList"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const API = "";
+  let token = localStorage.getItem("mtec_admin_token") || "";
+  let fullName = localStorage.getItem("mtec_admin_name") || "";
+
+  function showSetup() { document.getElementById("setupBox").classList.remove("hidden"); }
+
+  async function setupAdmin() {
+    const fullNameVal = document.getElementById("setupFullName").value.trim();
+    const username = document.getElementById("setupUsername").value.trim();
+    const password = document.getElementById("setupPassword").value;
+    const errEl = document.getElementById("setupError");
+    errEl.textContent = "";
+    if (!fullNameVal || !username || !password) { errEl.textContent = "Fill in all fields."; return; }
+    try {
+      const res = await fetch(API + "/api/admin/setup", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password, fullName: fullNameVal })
+      });
+      const data = await res.json();
+      if (!res.ok) { errEl.textContent = data.error || "Setup failed."; return; }
+      errEl.style.color = "#4caf50";
+      errEl.textContent = "Admin account created — you can log in now.";
+    } catch (e) { errEl.textContent = "Could not reach the server."; }
+  }
+
+  async function login() {
+    const username = document.getElementById("loginUsername").value.trim();
+    const password = document.getElementById("loginPassword").value;
+    const errEl = document.getElementById("loginError");
+    errEl.textContent = "";
+    if (!username || !password) { errEl.textContent = "Enter username and password."; return; }
+    try {
+      const res = await fetch(API + "/api/admin/login", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        errEl.textContent = data.error === "no_admin_configured"
+          ? "No admin account exists yet — use \"First time?\" below."
+          : (data.message || data.error || "Login failed.");
+        return;
+      }
+      token = data.token; fullName = data.fullName;
+      localStorage.setItem("mtec_admin_token", token);
+      localStorage.setItem("mtec_admin_name", fullName);
+      enterDashboard();
+    } catch (e) { errEl.textContent = "Could not reach the server."; }
+  }
+
+  function logout() {
+    localStorage.removeItem("mtec_admin_token");
+    localStorage.removeItem("mtec_admin_name");
+    token = ""; fullName = "";
+    document.getElementById("app").classList.add("hidden");
+    document.getElementById("loginScreen").classList.remove("hidden");
+  }
+
+  async function enterDashboard() {
+    document.getElementById("loginScreen").classList.add("hidden");
+    document.getElementById("app").classList.remove("hidden");
+    document.getElementById("whoName").textContent = fullName ? ", " + fullName : "";
+    try {
+      const res = await fetch(API + "/api/admin/dashboard", { headers: { "Authorization": "Bearer " + token } });
+      if (res.status === 401) { logout(); return; }
+      const data = await res.json();
+      renderDashboard(data);
+    } catch (e) {
+      document.getElementById("activityList").innerHTML = '<div class="comingsoon">Could not load dashboard data.</div>';
+    }
+  }
+
+  function renderDashboard(d) {
+    document.getElementById("statStudents").textContent = d.totalStudents;
+    document.getElementById("statCourses").textContent = d.totalCourses;
+    document.getElementById("statGrades").textContent = d.totalGrades;
+    document.getElementById("statPendingApplications").textContent = d.pendingApplications;
+
+    var nf = new Intl.NumberFormat("en-US");
+    document.getElementById("statPayments").textContent = "NLe " + nf.format(d.totalPaymentsCollected);
+    document.getElementById("statOutstandingFees").textContent = "NLe " + nf.format(d.outstandingFees);
+
+    var colors = { A: "#2ECC71", B: "#D4A017", C: "#F5A623", D: "#F5A623", E: "#E74C3C", F: "#A0A0A6" };
+    var dist = d.gradeDistribution || {};
+    var max = Math.max(1, ...Object.values(dist));
+    var chart = document.getElementById("barChart");
+    chart.innerHTML = Object.keys(colors).map(function (g) {
+      var val = dist[g] || 0;
+      var heightPct = Math.round((val / max) * 100);
+      return '<div class="bar-col"><div class="bar" style="height:' + heightPct + '%; background:' + colors[g] + ';" title="' + val + '"></div><div class="bar-label">' + g + '</div></div>';
+    }).join("");
+
+    var list = document.getElementById("activityList");
+    if (!d.recentActivities || d.recentActivities.length === 0) {
+      list.innerHTML = '<div class="comingsoon">Nothing yet.</div>';
+    } else {
+      list.innerHTML = d.recentActivities.map(function (a) {
+        var when = new Date(a.timestamp);
+        return '<div class="activity"><div class="msg">' + a.message + '</div><div class="time">' + when.toLocaleString() + '</div></div>';
+      }).join("");
+    }
+
+    var appsList = document.getElementById("applicationsList");
+    if (!d.recentApplications || d.recentApplications.length === 0) {
+      appsList.innerHTML = '<div class="comingsoon">No applications yet.</div>';
+    } else {
+      appsList.innerHTML = d.recentApplications.map(function (a) {
+        return '<div class="list-row"><div><div class="main">' + (a.applicationNumber || "") + ' — ' + (a.fullName || "") + '</div>'
+          + '<div class="sub">' + (a.programme || "") + '</div></div>'
+          + '<span class="pill pill-' + a.status + '">' + a.status.replace(/_/g, " ") + '</span></div>';
+      }).join("");
+    }
+
+    var paysList = document.getElementById("paymentsList");
+    if (!d.recentPayments || d.recentPayments.length === 0) {
+      paysList.innerHTML = '<div class="comingsoon">No payments yet.</div>';
+    } else {
+      paysList.innerHTML = d.recentPayments.map(function (p) {
+        return '<div class="list-row"><div><div class="main">' + (p.studentName || "") + ' — NLe ' + p.amount + '</div>'
+          + '<div class="sub">' + (p.method || "") + '</div></div>'
+          + '<span class="pill pill-' + p.status + '">' + p.status.replace(/_/g, " ") + '</span></div>';
+      }).join("");
+    }
+  }
+
+  // Auto-enter dashboard if a token is already saved.
+  if (token) { enterDashboard(); }
+</script>
+
+</body>
+</html>
