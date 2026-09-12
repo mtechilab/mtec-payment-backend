@@ -169,9 +169,19 @@ export interface Database {
         Relationships: [];
       };
       applications: {
-        Row: { id: string; application_number: string | null; pin_id: string; status: string; full_name: string };
+        Row: {
+          id: string; application_number: string | null; pin_id: string; status: string; full_name: string;
+          phone: string; email: string; programme: string; academic_year: string; intake: string;
+          study_mode: string; rejection_reason: string | null; created_at: string; submitted_at: string | null;
+        };
         Insert: Partial<Database["public"]["Tables"]["applications"]["Row"]>;
         Update: Partial<Database["public"]["Tables"]["applications"]["Row"]>;
+        Relationships: [];
+      };
+      fee_structures: {
+        Row: { programme: string; registration_fee: number; tuition_per_semester: number };
+        Insert: Partial<Database["public"]["Tables"]["fee_structures"]["Row"]>;
+        Update: Partial<Database["public"]["Tables"]["fee_structures"]["Row"]>;
         Relationships: [];
       };
       offer_letters: {
